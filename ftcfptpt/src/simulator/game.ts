@@ -27,22 +27,10 @@ export const FLOWERS = [
   { x: 0.6096, z: 1.765, name: "Gần · phải" },
   { x: -1.765, z: 0.6096, name: "Trái · gần" },
 ];
-export const POINTS = { leave: 3, park: 5, tip: 20, cell: 2, bottom: 5, flower: 2, garden: 1 };
+export const POINTS = { leave: 3, park: 5, tip: 20 };
 export const loading = (team: Team, p: Vec, margin = 0) => team === "red"
   ? p.x < -HALF + 0.2795 + margin && p.z > -1.2192 - margin && p.z < -0.635 + margin
   : p.x > HALF - 0.2795 - margin && p.z > 0.635 - margin && p.z < 1.2192 + margin;
-export const garden = (team: Team, p: Vec, margin = 0) => team === "red"
-  ? p.x < -HALF + 0.584 + margin && p.z > HALF - 0.051 - margin
-  : p.x > HALF - 0.584 - margin && p.z < -HALF + 0.051 + margin;
-export const flowerScore = (kinds: BallKind[]) => {
-  const nectar = kinds.filter((kind): kind is Team => kind !== "pollen");
-  const score = { red: 0, blue: 0 };
-  if (nectar.length) {
-    score[nectar[0]] += POINTS.bottom;
-    score[nectar[nectar.length - 1]] += kinds.length * POINTS.flower;
-  }
-  return { score, owner: nectar[nectar.length - 1] ?? null, bottom: nectar[0] ?? null };
-};
 export interface Config {
   team: Team;
   speed: number;
