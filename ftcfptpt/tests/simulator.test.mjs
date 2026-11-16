@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Game, DEFAULT_CONFIG, FLOWERS, HALF, MAX_ROBOT_SPEED, ROBOT_HALF, hiveTarget, launchVelocity, loading } from "../src/simulator/game.ts";
 
-const autoGame = () => { const game = new Game(); game.start(); return game; };
+const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+const autoGame = (seed = 42) => { const game = new Game(DEFAULT_CONFIG, seeded(seed)); game.start(); return game; };
 const mockBody = (position, velocity = { x: 0, y: 0, z: 0 }) => ({
   enabled: true, position: { ...position }, velocity: { ...velocity },
   translation() { return this.position; }, linvel() { return this.velocity; },
@@ -123,7 +124,7 @@ test("autonomous intake respects capacity and cannot control opponent NECTAR", (
   game.spawn(nectar, { ...robot.position, y: .05 }); game.bodies.set(nectar.id, mockBody(nectar.position));
   game.tick(1); assert.equal(robot.inventory.length, 4);
   game.ball(robot.inventory.shift()).status = "reserve";
-  game.tick(1); assert.equal(robot.inventory.length, 3); assert.equal(nectar.status, "field");
+  game.tick(1); assert.ok(robot.inventory.length <= 3); assert.ok(!robot.inventory.includes(nectar.id)); assert.equal(nectar.status, "field");
 });
 
 test("autonomous retrieval removes bottom POLLEN and stops at bottom NECTAR", () => {
@@ -133,7 +134,7 @@ test("autonomous retrieval removes bottom POLLEN and stops at bottom NECTAR", ()
   game.tick(1); assert.equal(robot.inventory.length, 1); assert.equal(game.flowers[0].stack.length, 3);
   const nectar = game.balls.find(b => b.kind === "red" && b.status === "reserve");
   nectar.status = "flower"; game.flowers[0].stack.unshift(nectar.id);
-  game.tick(1); assert.equal(robot.inventory.length, 1);
+  game.tick(1); assert.equal(game.flowers[0].stack[0], nectar.id); assert.equal(game.flowers[0].stack.length, 4); assert.ok(!robot.inventory.includes(nectar.id));
 });
 
 test("a robot shooting NECTAR into a flower during AUTO incurs +20 opponent, no flower points", () => {
@@ -182,4 +183,60 @@ test("autonomous steering uses angular velocity, preserving gravity and contact 
   game.bodies.set("robot-0", body); game.tick(1 / 60);
   assert.equal(teleports, 0); assert.ok(Math.abs(angular.y) > 0 && Math.abs(angular.y) <= 2.4);
   assert.equal(body.linvel().y, -.2);
+});
+
+function randomTrace(seed) {
+  const game = autoGame(seed);
+  for (const robot of game.robots) game.bodies.set('robot-' + robot.id, mockBody(robot.position));
+  const samples = [], firstShots = [];
+  for (let frame = 0; frame < 360; frame++) {
+    game.tick(1 / 60);
+    for (const robot of game.robots) {
+      const body = game.bodies.get('robot-' + robot.id), p = body.translation(), v = body.linvel();
+      body.setTranslation({ x: p.x + v.x / 60, y: .13, z: p.z + v.z / 60 });
+      if (robot.shots && firstShots[robot.id] === undefined) firstShots[robot.id] = frame;
+    }
+    game.syncRobotPoses();
+    for (const robot of game.robots) {
+      assert.ok(Math.abs(robot.position.x) <= HALF && Math.abs(robot.position.z) <= HALF);
+      assert.ok(robot.team === 'red' ? robot.position.x < 0 : robot.position.x > 0);
+    }
+    if (frame % 15 === 0) samples.push(game.robots.map(r => [Number(r.position.x.toFixed(5)), Number(r.position.z.toFixed(5))]));
+  }
+  return { samples, firstShots };
+}
+test('different random seeds produce different bot paths, with reproducible seeded runs', () => {
+  assert.deepEqual(randomTrace(42), randomTrace(42));
+  assert.notDeepEqual(randomTrace(42).samples, randomTrace(123).samples);
+});
+test('all four random bots move independently and shoot at different times', () => {
+  const trace = randomTrace(42);
+  assert.equal(trace.firstShots.filter(Number.isFinite).length, 4);
+  assert.ok(new Set(trace.firstShots).size > 1);
+  for (let id = 0; id < 4; id++) {
+    const positions = trace.samples.map(frame => frame[id].join(','));
+    assert.ok(new Set(positions).size > 3, 'each bot keeps moving');
+  }
+});
+test('pausing freezes random decisions as well as the AUTO clock', () => {
+  let draws = 0; const random = seeded(17);
+  const game = new Game(DEFAULT_CONFIG, () => { draws++; return random(); });
+  for (const r of game.robots) game.bodies.set('robot-' + r.id, mockBody(r.position));
+  game.start(); game.tick(1 / 60); const before = draws, elapsed = game.elapsed;
+  game.start(); game.tick(20);
+  assert.equal(draws, before); assert.equal(game.elapsed, elapsed);
+  game.start(); game.tick(1 / 60);
+  assert.equal(draws, before);
+});
+test('a blocked bot chooses a new plan before its normal destination timer expires', () => {
+  let draws = 0;
+  const game = new Game(DEFAULT_CONFIG, () => { draws++; return .99; });
+  for (const r of game.robots) {
+    r.position = { x: r.team === 'red' ? -1.2 : 1.2, y: .13, z: r.id % 2 ? -.9 : .9 };
+    game.bodies.set('robot-' + r.id, mockBody(r.position));
+  }
+  game.start(); game.tick(1 / 60); const initial = draws;
+  for (let frame = 0; frame < 54; frame++) game.tick(1 / 60);
+  assert.ok(game.elapsed < 1);
+  assert.ok(draws > initial, 'stationary bots reroute after 0.8s');
 });

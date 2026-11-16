@@ -60,6 +60,11 @@ export interface Hive {
 }
 export interface Flower { stack: string[] }
 export interface Event { id: number; text: string; team?: Team; at: number }
+interface BotPlan {
+  target: { x: number; z: number };
+  expiresAt: number; nextShotAt: number; speedFactor: number;
+  lastPosition: { x: number; z: number }; stuckFor: number;
+}
 type Score = { red: number; blue: number };
 const zeroScore = (): Score => ({ red: 0, blue: 0 });
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -110,11 +115,14 @@ export class Game {
   private eventId = 0;
   private listeners = new Set<() => void>();
   private spawnPositions: Vec[];
+  private random: () => number;
+  private botPlans = new Map<number, BotPlan>();
   subscribe = (callback: () => void) => { this.listeners.add(callback); return () => { this.listeners.delete(callback); }; };
   getSnapshot = () => this.revision;
   emit() { this.revision++; this.listeners.forEach(fn => fn()); }
-  constructor(config: Config = DEFAULT_CONFIG) {
+  constructor(config: Config = DEFAULT_CONFIG, random: () => number = Math.random) {
     this.config = { ...config };
+    this.random = random;
     this.controlled = config.team === "red" ? 0 : 2;
     this.robots = [
       { team: "red", number: "23321", x: -0.7, z: HALF - 0.21, heading: Math.PI },
@@ -156,7 +164,7 @@ export class Game {
     if (this.phase === "ended") return;
     if (this.phase === "ready") {
       this.phase = "auto";
-      this.note("AUTO · Cả bốn robot tự chạy trong 30 giây");
+      this.note("AUTO · 4 BOT RANDOM · Chạy ngẫu nhiên trong 30 giây");
     }
     this.paused = !this.paused;
     this.emit();
@@ -297,29 +305,46 @@ export class Game {
     robot.speed = Math.hypot(current.x, current.z);
   }
   private bot(robot: Robot, dt: number) {
-    let target: { x: number; z: number };
-    if (robot.inventory.length) {
-      target = { x: robot.team === "red" ? -1.08 : 1.08, z: (robot.team === "red" ? 1 : -1) * (0.73 + robot.id % 2 * 0.43) };
-      if (dist(target, robot.position) < 0.35 && !this.hives[robot.team].tipping) this.fire(robot);
-    } else {
-      const candidates = this.balls.filter(b => b.status === "field" && !b.mustTouchFloor &&
-        (b.kind === "pollen" || b.kind === robot.team) && b.position.y < 0.18 &&
-        (robot.team === "red" ? b.position.x < 0 : b.position.x > 0));
-      const closest = candidates.sort((a, b) => dist(a.position, robot.position) - dist(b.position, robot.position))[0];
-      const flowers = FLOWERS.filter((f, i) => (robot.team === "red" ? f.x < 0 : f.x > 0) && this.flowers[i].stack.some(id => this.ball(id).kind === "pollen"));
-      target = closest?.position ?? flowers.sort((a, b) => dist(a, robot.position) - dist(b, robot.position))[0] ?? { x: robot.team === "red" ? -1.6 : 1.6, z: robot.team === "red" ? -0.9 : 0.9 };
+    const side = robot.team === 'red' ? -1 : 1;
+    let plan = this.botPlans.get(robot.id);
+    if (plan) {
+      // Ignore contact jitter: require meaningful progress within the window.
+      if (dist(robot.position, plan.lastPosition) >= 0.08) {
+        plan.stuckFor = 0; plan.lastPosition = { ...robot.position };
+      } else plan.stuckFor += dt;
     }
-    // Route around the central A-frame rather than driving through its feet.
-    if (Math.abs(robot.position.x) < 0.9 && Math.abs(robot.position.z) < 0.7) target = { x: robot.team === "red" ? -1.05 : 1.05, z: robot.position.z };
-    let dx = target.x - robot.position.x, dz = target.z - robot.position.z;
-    if (Math.sign(target.x) !== Math.sign(robot.position.x) && Math.abs(robot.position.z) < 0.85) { dx = 0; dz = (robot.id % 2 ? -1 : 1) * 0.85 - robot.position.z; }
+    if (!plan || this.elapsed >= plan.expiresAt || dist(plan.target, robot.position) < 0.2 || plan.stuckFor > 0.8) {
+      const x = side * (0.32 + this.random() * 1.1);
+      let z = (this.random() * 2 - 1) * 1.42;
+      if (Math.abs(x) < 0.95 && Math.abs(z) < 0.9) z = (this.random() < 0.5 ? -1 : 1) * (0.98 + this.random() * 0.4);
+      plan = {
+        target: { x, z }, expiresAt: this.elapsed + 1.2 + this.random() * 2,
+        nextShotAt: plan?.nextShotAt ?? this.elapsed + 0.4 + this.random() * 0.9,
+        speedFactor: 0.45 + this.random() * 0.45,
+        lastPosition: { ...robot.position }, stuckFor: 0,
+      };
+      this.botPlans.set(robot.id, plan);
+    }
+    let target = plan.target;
+    // Navigate via the outside corridor instead of crossing the central frame.
+    if (Math.abs(robot.position.x) < 0.95) {
+      if (Math.abs(robot.position.z) < 0.85) target = { x: robot.position.x, z: (robot.position.z < 0 ? -1 : 1) * 1.05 };
+      else if (Math.abs(target.x) >= 0.95 || Math.sign(target.z) !== Math.sign(robot.position.z)) target = { x: side * 1.15, z: robot.position.z };
+    } else if (Math.abs(target.x) < 0.95 && (Math.abs(robot.position.z) < 0.9 || Math.sign(target.z) !== Math.sign(robot.position.z))) {
+      target = { x: side * 1.15, z: Math.sign(target.z) * 1.1 };
+    }
+    const dx = target.x - robot.position.x, dz = target.z - robot.position.z;
     const distance = Math.hypot(dx, dz);
-    const speed = clamp(distance * 2.6, 0, this.config.speed * 0.65);
+    const speed = clamp(distance * 2.6, 0, this.config.speed * plan.speedFactor);
     const desired = Math.atan2(dx, dz);
     const delta = Math.atan2(Math.sin(desired - robot.heading), Math.cos(desired - robot.heading));
     robot.intake = robot.inventory.length < 4;
     this.drive(robot, dx / Math.max(distance, 0.001), dz / Math.max(distance, 0.001), delta * 2, dt, speed);
     if (robot.intake) this.collect(robot);
+    if (this.elapsed >= plan.nextShotAt) {
+      plan.nextShotAt = this.elapsed + 0.65 + this.random() * 1.15;
+      if (robot.inventory.length && !this.hives[robot.team].tipping) this.fire(robot);
+    }
   }
   private assessMovement() {
     if (this.autoMovementAssessed) return;

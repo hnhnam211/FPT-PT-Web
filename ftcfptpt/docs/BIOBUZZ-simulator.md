@@ -8,7 +8,7 @@ From `ftcfptpt`, run `npm install`, then `npm run dev`. Production: `npm run bui
 
 ## Controls
 
-All four robots execute the built-in autonomous routine. Press P / Enter to start or pause, R to reset, 1–4 to select a robot to follow, C to change camera, H to hide the HUD, and Escape for settings. On a standard-mapped gamepad, Start starts/pauses, LB changes the watched robot, and RB changes camera. The visible toolbar provides these spectator actions on touch devices.
+All four robots run independent random autonomous routines. Each bot chooses a destination on its own alliance half, speed and shooting interval. Destinations change every 1.2-3.2 simulated seconds, on arrival, or after 0.8s without progress. Bots route around the central A-frame, collect nearby legal balls, and aim at their own hive. Resetting generates new paths; pausing freezes decisions with the clock. Press P / Enter to start or pause, R to reset, 1–4 to select a robot to follow, C to change camera, H to hide the HUD, and Escape for settings. On a standard-mapped gamepad, Start starts/pauses, LB changes the watched robot, and RB changes camera. The visible toolbar provides these spectator actions on touch devices.
 
 The simulator runs only the 30-second AUTO period. At 0:00 robots stop, LEAVE and AUTO PARK are assessed, and in-flight balls / tipping hives settle (at least 3s, with a 12s timeout). The results then show AUTO HIVE TIP, LEAVE, AUTO PARK and opponent penalty points. There is no transition, TELEOP or manual practice mode. CELL, GARDEN, FLOWER and full-match ranking bonuses are excluded. Losing window focus pauses the simulation. Spectator and physical-model settings are remembered locally; legacy practice, manual-drive and disabled-bot preferences are ignored.
 

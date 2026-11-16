@@ -103,7 +103,7 @@ function RobotTelemetry({ game }: { game: Game }) {
       <span className={loading(r.team, r.position, 0.2) ? "active" : ""}>{loading(r.team, r.position, 0.2) ? "TRONG" : "NGOÀI"} LOADING ZONE</span>
       <span className={r.intake ? "active" : ""}>INTAKE {r.intake ? "ON" : "OFF"}</span>
       <span className="active">TURRET TỰ BÁM</span>
-      <span>CHƯƠNG TRÌNH AUTO</span>
+      <span>BOT RANDOM</span>
     </div>
     <div className="sim-turret-row"><div className="sim-dial"><i style={{ transform: `rotate(${-r.turret * 180 / Math.PI}deg)` }} /></div>
       <div><span className="sim-muted">HIVE {r.team === "red" ? "ĐỎ" : "XANH"} · TURRET</span>
@@ -140,7 +140,7 @@ function Help({ close }: { close: () => void }) {
     <div className="sim-dialog-header"><div><span className="sim-eyebrow">AUTO · 30 GIÂY</span><h2 id="sim-help-title">THEO DÕI ROBOT.</h2></div><button onClick={close} aria-label="Đóng hướng dẫn">×</button></div>
     <div className="sim-help-keys">{HELP.map(([key, description]) => <div key={key}><kbd>{key}</kbd><span>{description}</span></div>)}</div>
     <div className="sim-help-pad"><b>TAY CẦM</b><p>Start: bắt đầu / tạm dừng · LB: chọn robot theo dõi · RB: đổi camera.</p></div>
-    <p className="sim-help-note">Cả bốn robot tự di chuyển, hút POLLEN và bắn vào HIVE trong 30 giây. Human player mô phỏng tự nạp một NECTAR sau mỗi HIVE TIP. Hết AUTO, robot dừng và hệ thống chờ bóng lắng xuống rồi chốt điểm HIVE TIP, LEAVE và AUTO PARK.</p>
+    <p className="sim-help-note">Cả bốn bot chọn hướng, tốc độ và thời điểm bắn ngẫu nhiên trong 30 giây AUTO. Bot đổi hướng khi bị kẹt và mỗi lượt chạy lại tạo đường đi mới. Human player mô phỏng tự nạp một NECTAR sau mỗi HIVE TIP. Hết AUTO, robot dừng và hệ thống chờ bóng lắng xuống rồi chốt điểm HIVE TIP, LEAVE và AUTO PARK.</p>
     <button className="sim-primary" onClick={close}>ĐÃ HIỂU · VÀO SÂN →</button>
   </section></div>;
 }
@@ -254,10 +254,10 @@ export default function Simulator() {
     </>}
     {!help && !menu && (game.phase === "ready" || game.paused && isActive) && <div className="sim-start-card">
       <span className="sim-eyebrow">FPT ROBOTICS · 2026—2027</span><h1>{game.phase === "ready" ? <>BIO<span>BUZZ.</span></> : "TẠM DỪNG."}</h1>
-      <p>{game.phase === "ready" ? "Bốn robot tự chạy, thu thập POLLEN và lật HIVE. Theo dõi lượt AUTO trong 30 giây." : "Sân đấu và đồng hồ đang dừng. Tiếp tục khi bạn sẵn sàng."}</p>
+      <p>{game.phase === "ready" ? "Bốn bot chạy ngẫu nhiên, tự hút bóng và bắn vào HIVE trong 30 giây AUTO. Mỗi lượt là một đường đi mới." : "Sân đấu và đồng hồ đang dừng. Tiếp tục khi bạn sẵn sàng."}</p>
       <button className="sim-primary" onClick={() => game.start()}>{game.phase === "ready" ? "BẮT ĐẦU AUTO" : "TIẾP TỤC AUTO"} <span>→</span></button>
       {game.phase === "ready" && <div className="sim-start-options"><button onClick={showHelp}>Hướng dẫn theo dõi</button></div>}
-      {game.phase === "ready" && <small>AUTO 0:30 · ROBOT TỰ CHẠY · CHỐT ĐIỂM</small>}
+      {game.phase === "ready" && <small>AUTO 0:30 · 4 BOT RANDOM · CHỐT ĐIỂM</small>}
     </div>}
     <div className="sim-bottom-bar"><div className="sim-brand"><i />BIOBUZZ <span>SIMULATOR</span><small>TU09</small></div>
       <div className="sim-toolbar"><button onClick={() => game.start()} disabled={game.phase === "ended"} title="Bắt đầu / tạm dừng (P)" aria-label={game.paused ? "Bắt đầu hoặc tiếp tục" : "Tạm dừng"}>{game.paused ? "▶" : "Ⅱ"}</button><button onClick={reset} title="Chạy lại AUTO (R)" aria-label="Chạy lại AUTO">↻</button><span className="sim-toolbar-divider" /><button className="sim-robot-switch" onClick={() => game.selectRobot((game.controlled + 1) % 4)} title="Chọn robot theo dõi (1–4)">#{game.robot.number}</button><button className="sim-camera-switch" onClick={cycleCamera} title="Đổi camera (C)">◉ <span>{CAMERA_NAMES[camera]}</span></button><button onClick={() => { game.config.trajectory = !game.config.trajectory; game.emit(); }} className={game.config.trajectory ? "active" : ""} title="Hiển thị đường đạn">⊕ <span>ĐƯỜNG ĐẠN</span></button><button onClick={fullScreen} title="Toàn màn hình" aria-label="Toàn màn hình">⛶</button></div>
