@@ -98,6 +98,12 @@ a {
   opacity: 1;
 }
 
+.navbar nav .nav-simulator-link {
+  color: #f5ce46;
+  font-weight: 600;
+  opacity: 1;
+}
+
 .nav-button {
   border: 1px solid rgba(255, 255, 255, 0.4);
 
@@ -232,6 +238,49 @@ a {
 
 .secondary-button {
   border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.simulator-launch-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #f5ce46;
+  transition: background 0.2s;
+}
+
+.simulator-launch-button:hover {
+  background: #ffe184;
+}
+
+.simulator-launch-button:focus-visible,
+.nav-simulator-link:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 4px;
+}
+
+@media (min-width: 801px) and (max-width: 1200px) {
+  .navbar nav {
+    gap: clamp(10px, 1.6vw, 20px);
+  }
+
+  .navbar nav > a,
+  .navbar nav .resource-dropdown > button {
+    font-size: 11px;
+  }
+
+  .navbar > .nav-button {
+    display: none;
+  }
+
+  .navbar .resource-menu {
+    left: auto;
+    right: 0;
+    transform: translateY(-10px);
+  }
+
+  .navbar .resource-dropdown:hover .resource-menu {
+    transform: translateY(0);
+  }
 }
 
 .hero-numbers {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   collection,
   getDocs,
@@ -19,6 +19,8 @@ import AdminLogin from "./pages/AdminLogin";
 import Admin from "./pages/Admin";
 import CreatePost from "./pages/admin/CreatePost";
 import { db } from "./firebase";
+
+const Simulator = lazy(() => import("./pages/Simulator"));
 
 type GitHubRepo = {
   name: string;
@@ -569,12 +571,14 @@ function BlogPage() {
 
 function App() {
   const [resourcePage, setResourcePage] = useState<
-    "main" | "programme" | "mechanical"
+    "main" | "programme" | "mechanical" | "simulator"
   >("main");
 
   useEffect(() => {
     const handleHash = () => {
-      if (window.location.hash === "#resources/programme") {
+      if (window.location.hash === "#resources/simulator") {
+        setResourcePage("simulator");
+      } else if (window.location.hash === "#resources/programme") {
         setResourcePage("programme");
       } else if (window.location.hash === "#resources/mechanical") {
         setResourcePage("mechanical");
@@ -593,6 +597,10 @@ function App() {
   }, []);
 
   const path = window.location.pathname;
+
+  if (path === "/simulator" || resourcePage === "simulator") {
+    return <Suspense fallback={<div style={{ padding: 40, color: "white" }}>Đang tải BIOBUZZ Simulator…</div>}><Simulator /></Suspense>;
+  }
 
   // Trang login
   if (path === "/admin/login") {
@@ -635,6 +643,7 @@ function App() {
             <a href="#gallery">Gallery</a>
             <a href="/posts">Posts</a>
             <a href="/pricing">Báo giá</a>
+            <a href="/simulator" className="nav-simulator-link">Simulator</a>
 
             <div className="resource-dropdown">
               <button>Resources ▾</button>
@@ -647,6 +656,7 @@ function App() {
                 <a href="#resources/programme">
                   Programme
                 </a>
+                <a href="/simulator">BIOBUZZ Simulator</a>
               </div>
             </div>
           </nav>
@@ -677,6 +687,7 @@ function App() {
             <a href="#gallery">Gallery</a>
             <a href="/posts">Posts</a>
             <a href="/pricing">Báo giá</a>
+            <a href="/simulator" className="nav-simulator-link">Simulator</a>
 
             <div className="resource-dropdown">
               <button>Resources ▾</button>
@@ -689,6 +700,7 @@ function App() {
                 <a href="#resources/programme">
                   Programme
                 </a>
+                <a href="/simulator">BIOBUZZ Simulator</a>
               </div>
             </div>
           </nav>
@@ -720,6 +732,7 @@ function App() {
           <a href="#gallery">Gallery</a>
           <a href="/posts">Posts</a>
           <a href="/pricing">Báo giá</a>
+          <a href="/simulator" className="nav-simulator-link">Simulator</a>
 
           <div className="resource-dropdown">
             <button>Resources ▾</button>
@@ -732,6 +745,7 @@ function App() {
               <a href="#resources/programme">
                 Programme
               </a>
+              <a href="/simulator">BIOBUZZ Simulator</a>
             </div>
           </div>
         </nav>
@@ -772,6 +786,9 @@ function App() {
 
             <a href="#achievements" className="secondary-button">
               OUR ACHIEVEMENTS →
+            </a>
+            <a href="/simulator" className="primary-button simulator-launch-button">
+              <span aria-hidden="true">▶</span> PLAY SIMULATOR
             </a>
           </div>
         </div>
