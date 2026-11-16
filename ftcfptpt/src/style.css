@@ -69,10 +69,22 @@ a {
 
 .navbar nav {
   display: flex;
+  align-items: center;
   gap: 35px;
 }
 
-.navbar nav a {
+.navbar nav > a,
+.navbar nav .resource-dropdown > button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.navbar nav a,
+.navbar nav .resource-dropdown > button {
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -81,7 +93,8 @@ a {
   transition: 0.3s;
 }
 
-.navbar nav a:hover {
+.navbar nav a:hover,
+.navbar nav .resource-dropdown > button:hover {
   opacity: 1;
 }
 
@@ -798,7 +811,8 @@ footer p {
 
 .resource-dropdown {
   position: relative;
-  display: inline-block;
+  display: flex;
+  align-items: center;
 }
 
 .resource-dropdown > button {
