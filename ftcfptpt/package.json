@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:simulator": "node --test tests/simulator.test.mjs"
+    "test:simulator": "node --test tests/simulator.test.mjs tests/bot-navigation.test.mjs tests/bot-physics.test.mjs",
+    "evaluate:bots": "node scripts/evaluate-bots.mjs",
+    "train:bots": "node scripts/train-bots.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

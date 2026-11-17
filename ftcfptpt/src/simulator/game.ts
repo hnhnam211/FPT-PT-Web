@@ -1,5 +1,7 @@
 // BIOBUZZ TU09, sections 9–11. Distances in metres, time in seconds.
 // The hive load threshold is a tunable simulation parameter, not an official rule.
+import { BOT_POLICY, type BotTuning } from "./bot-policy.ts";
+import { navigable, planPath, safePoint, type Point } from "./bot-navigation.ts";
 export type Team = "red" | "blue";
 export type BallKind = "pollen" | Team;
 export type Phase = "ready" | "auto" | "settling" | "ended";
@@ -47,12 +49,14 @@ export interface Ball {
   id: string; kind: BallKind; status: "field" | "held" | "hive" | "flower" | "reserve";
   position: Vec; previous: Vec; launchedBy: number | null; releasedAt: number;
   mustTouchFloor: boolean;
+  flight?: { team: Team; side: number; arrivalAt: number };
 }
 export interface Robot {
   id: number; number: string; team: Team; position: Vec; heading: number;
   turret: number; hood: number; inventory: string[]; intake: boolean;
   lastShot: number; lastPickup: number; shots: number; hits: number;
   speed: number; left: boolean;
+  task: "idle" | "move" | "collect" | "aim" | "wait" | "park";
 }
 export interface Hive {
   team: Team; side: number; angle: number; tips: number; load: string[];
@@ -61,9 +65,17 @@ export interface Hive {
 export interface Flower { stack: string[] }
 export interface Event { id: number; text: string; team?: Team; at: number }
 interface BotPlan {
-  target: { x: number; z: number };
-  expiresAt: number; nextShotAt: number; speedFactor: number;
-  lastPosition: { x: number; z: number }; stuckFor: number;
+  mode: "shoot" | "collect" | "park" | "roam";
+  target: Point;
+  resource?: string;
+  hiveSide: number;
+  path: Point[];
+  rerouteAt: number;
+  expiresAt: number;
+  nextShotAt: number;
+  readyFor: number;
+  lastPosition: Point;
+  stuckFor: number;
 }
 type Score = { red: number; blue: number };
 const zeroScore = (): Score => ({ red: 0, blue: 0 });
@@ -117,12 +129,14 @@ export class Game {
   private spawnPositions: Vec[];
   private random: () => number;
   private botPlans = new Map<number, BotPlan>();
+  private tuning: BotTuning;
   subscribe = (callback: () => void) => { this.listeners.add(callback); return () => { this.listeners.delete(callback); }; };
   getSnapshot = () => this.revision;
   emit() { this.revision++; this.listeners.forEach(fn => fn()); }
-  constructor(config: Config = DEFAULT_CONFIG, random: () => number = Math.random) {
+  constructor(config: Config = DEFAULT_CONFIG, random: () => number = Math.random, tuning: Partial<BotTuning> = {}) {
     this.config = { ...config };
     this.random = random;
+    this.tuning = { ...BOT_POLICY, ...tuning };
     this.controlled = config.team === "red" ? 0 : 2;
     this.robots = [
       { team: "red", number: "23321", x: -0.7, z: HALF - 0.21, heading: Math.PI },
@@ -131,7 +145,7 @@ export class Game {
       { team: "blue", number: "5927", x: HALF - 0.2, z: 0.35, heading: -Math.PI / 2 },
     ].map((r, id) => ({ id, number: r.number, team: r.team as Team,
       position: { x: r.x, y: 0.13, z: r.z }, heading: r.heading, turret: 0, hood: 1,
-      inventory: [], intake: false, lastShot: -10, lastPickup: -10, shots: 0, hits: 0, speed: 0, left: false }));
+      inventory: [], intake: false, lastShot: -10, lastPickup: -10, shots: 0, hits: 0, speed: 0, left: false, task: "idle" }));
     this.spawnPositions = this.robots.map(robot => ({ ...robot.position }));
     this.hives = {
       red: { team: "red", side: 1, nextSide: -1, angle: -Math.PI / 6, tips: 0, load: [], tipping: 0 },
@@ -164,7 +178,7 @@ export class Game {
     if (this.phase === "ended") return;
     if (this.phase === "ready") {
       this.phase = "auto";
-      this.note("AUTO · 4 BOT RANDOM · Chạy ngẫu nhiên trong 30 giây");
+      this.note("AUTO · Bot tự tìm đường, lấy bóng và căn ném trong 30 giây");
     }
     this.paused = !this.paused;
     this.emit();
@@ -177,6 +191,7 @@ export class Game {
     ball.status = status; this.bodies.get(ball.id)?.setEnabled(false);
   }
   spawn(ball: Ball, position: Vec, velocity: Vec = { x: 0, y: 0, z: 0 }) {
+    ball.flight = undefined;
     ball.status = "field"; ball.position = { ...position }; ball.previous = { ...position };
     ball.releasedAt = this.elapsed;
     const body = this.bodies.get(ball.id);
@@ -204,7 +219,7 @@ export class Game {
     if (this.paused || this.phase !== "auto" || this.elapsed - robot.lastShot < 0.48 || !robot.inventory.length) return;
     const target = this.targetPosition(robot);
     const from = { x: robot.position.x, y: 0.43, z: robot.position.z };
-    const velocity = launchVelocity(from, target, this.config.power);
+    const velocity = this.shotVelocity(robot);
     if (!velocity) { if (robot.id === this.controlled) { this.note("Mục tiêu ngoài tầm bắn · Tăng lực hoặc tiến gần hơn"); this.emit(); } return; }
     const ball = this.ball(robot.inventory.shift()!);
     ball.launchedBy = robot.id; ball.mustTouchFloor = false;
@@ -212,7 +227,20 @@ export class Game {
     const t = 0.045;
     this.spawn(ball, { x: from.x + velocity.x * t, y: from.y + velocity.y * t - 4.905 * t * t, z: from.z + velocity.z * t },
       { ...velocity, y: velocity.y - 9.81 * t });
+    ball.flight = { team: robot.team, side: this.hives[robot.team].side,
+      arrivalAt: this.elapsed + Math.hypot(target.x - from.x, target.z - from.z) / Math.hypot(velocity.x, velocity.z) - t };
     robot.lastShot = this.elapsed; robot.shots++;
+  }
+  private shotVelocity(robot: Robot): Vec | null {
+    const target = this.targetPosition(robot);
+    return launchVelocity({ ...robot.position, y: .43 }, { ...target, y: target.y + this.tuning.aimLift }, this.config.power);
+  }
+  private hiveCommitted(team: Team): number {
+    const hive = this.hives[team];
+    const weight = (ball: Ball) => ball.kind === "pollen" ? 1 : 1.5;
+    return hive.load.reduce((sum, id) => sum + weight(this.ball(id)), 0) + this.balls.reduce((sum, ball) =>
+      sum + (ball.status === "field" && ball.flight?.team === team && ball.flight.side === hive.side &&
+        this.elapsed <= ball.flight.arrivalAt + .2 ? weight(ball) : 0), 0);
   }
   private scoreFlower(ball: Ball, fi: number) {
     if (ball.kind !== "pollen" && ball.launchedBy !== null) {
@@ -299,52 +327,122 @@ export class Game {
     const angularSpeed = clamp(turn, -1, 1) * 2.4;
     if (!body.rotation) robot.heading += angularSpeed * dt;
     const current = body.linvel(), response = Math.min(1, dt * 12);
-    body.setLinvel({ x: current.x + (x * speed - current.x) * response, y: current.y,
-      z: current.z + (z * speed - current.z) * response }, true);
+    // Velocity control represents wheel traction. Compensate ground friction so
+    // small final approach commands can overcome static friction and reach the goal.
+    const traction = speed > 0 && robot.position.y < .16 ? 9.81 * Math.min(dt, 1 / 30) * this.tuning.tractionCompensation : 0;
+    body.setLinvel({ x: current.x + (x * speed - current.x) * response + x * traction, y: current.y,
+      z: current.z + (z * speed - current.z) * response + z * traction }, true);
     body.setAngvel({ x: 0, y: angularSpeed, z: 0 }, true);
     robot.speed = Math.hypot(current.x, current.z);
   }
   private bot(robot: Robot, dt: number) {
-    const side = robot.team === 'red' ? -1 : 1;
+    const side = robot.team === "red" ? -1 : 1, hive = this.hives[robot.team];
+    const neighbors = this.robots.filter(other => other.id !== robot.id);
     let plan = this.botPlans.get(robot.id);
     if (plan) {
-      // Ignore contact jitter: require meaningful progress within the window.
-      if (dist(robot.position, plan.lastPosition) >= 0.08) {
-        plan.stuckFor = 0; plan.lastPosition = { ...robot.position };
-      } else plan.stuckFor += dt;
+      if (dist(robot.position, plan.lastPosition) >= .06) { plan.stuckFor = 0; plan.lastPosition = { ...robot.position }; }
+      else if (dist(robot.position, plan.target) > this.tuning.arrivalRadius) plan.stuckFor += dt;
     }
-    if (!plan || this.elapsed >= plan.expiresAt || dist(plan.target, robot.position) < 0.2 || plan.stuckFor > 0.8) {
-      const x = side * (0.32 + this.random() * 1.1);
-      let z = (this.random() * 2 - 1) * 1.42;
-      if (Math.abs(x) < 0.95 && Math.abs(z) < 0.9) z = (this.random() < 0.5 ? -1 : 1) * (0.98 + this.random() * 0.4);
+    const park = this.remaining < this.tuning.parkLead && (!robot.inventory.length || this.hiveCommitted(robot.team) >= this.config.tipLoad);
+    const resource = plan?.resource ? this.resourceTarget(plan.resource, side) : null;
+    const needsPlan = !plan || park && plan.mode !== "park" ||
+      plan.mode === "shoot" && (!robot.inventory.length || plan.hiveSide !== hive.side) ||
+      plan.mode === "collect" && (!resource || robot.inventory.length >= 4) ||
+      plan.mode === "roam" && this.elapsed >= plan.expiresAt;
+    if (needsPlan) {
+      let mode: BotPlan["mode"], target: Point, resourceId: string | undefined;
+      const source = this.pickResource(robot);
+      if (park) { mode = "park"; target = { x: side * 1.48, z: side * .93 }; }
+      else if (robot.inventory.length && (plan?.mode !== "collect" || robot.inventory.length >= 4 || !source || dist(source.target, robot.position) > .55)) {
+        mode = "shoot";
+        target = { x: side * (robot.id % 2 ? this.tuning.outerStation : 1.03), z: hive.side * (robot.id % 2 ? .78 : 1.28) };
+        target.x += (this.random() - .5) * .025; target.z += (this.random() - .5) * .025;
+      } else if (source) { mode = "collect"; target = source.target; resourceId = source.id; }
+      else if (robot.inventory.length) {
+        mode = "shoot"; target = { x: side * 1.1, z: hive.side * 1.15 };
+      } else {
+        mode = "roam"; target = { x: side * (1.05 + this.random() * .4), z: (this.random() * 2 - 1) * 1.4 };
+      }
+      target = safePoint(target, side);
       plan = {
-        target: { x, z }, expiresAt: this.elapsed + 1.2 + this.random() * 2,
-        nextShotAt: plan?.nextShotAt ?? this.elapsed + 0.4 + this.random() * 0.9,
-        speedFactor: 0.45 + this.random() * 0.45,
-        lastPosition: { ...robot.position }, stuckFor: 0,
+        mode, target, resource: resourceId, hiveSide: hive.side, path: [], rerouteAt: 0,
+        expiresAt: this.elapsed + 1.8, nextShotAt: plan?.nextShotAt ?? this.elapsed + .2 + this.random() * .12,
+        readyFor: 0, lastPosition: { ...robot.position }, stuckFor: 0,
       };
       this.botPlans.set(robot.id, plan);
     }
-    let target = plan.target;
-    // Navigate via the outside corridor instead of crossing the central frame.
-    if (Math.abs(robot.position.x) < 0.95) {
-      if (Math.abs(robot.position.z) < 0.85) target = { x: robot.position.x, z: (robot.position.z < 0 ? -1 : 1) * 1.05 };
-      else if (Math.abs(target.x) >= 0.95 || Math.sign(target.z) !== Math.sign(robot.position.z)) target = { x: side * 1.15, z: robot.position.z };
-    } else if (Math.abs(target.x) < 0.95 && (Math.abs(robot.position.z) < 0.9 || Math.sign(target.z) !== Math.sign(robot.position.z))) {
-      target = { x: side * 1.15, z: Math.sign(target.z) * 1.1 };
+    if (!plan) return;
+    if (resource && plan.mode === "collect") plan.target = resource;
+    if (plan.stuckFor > .8) {
+      const escapes = [{ x: robot.position.x + side * .35, z: robot.position.z },
+        { x: robot.position.x - side * .3, z: robot.position.z },
+        { x: robot.position.x, z: robot.position.z + .4 }, { x: robot.position.x, z: robot.position.z - .4 }]
+        .map(p => safePoint(p, side)).filter(navigable);
+      escapes.sort((a, b) => this.clearanceScore(b, neighbors) - this.clearanceScore(a, neighbors));
+      const escape = escapes[Math.min(1, Math.floor(this.random() * Math.min(2, escapes.length)))];
+      if (escape) plan.path = [...planPath(robot.position, escape, side), ...planPath(escape, plan.target, side)];
+      plan.rerouteAt = this.elapsed + .8; plan.stuckFor = 0; plan.lastPosition = { ...robot.position };
+    } else if (this.elapsed >= plan.rerouteAt) {
+      plan.path = planPath(robot.position, plan.target, side, neighbors.map(r => r.position), this.tuning.avoidanceRadius);
+      plan.rerouteAt = this.elapsed + .5;
     }
+    while (plan.path.length > 1 && dist(robot.position, plan.path[0]) < .13) plan.path.shift();
+    const target = plan.path[0] ?? plan.target;
     const dx = target.x - robot.position.x, dz = target.z - robot.position.z;
     const distance = Math.hypot(dx, dz);
-    const speed = clamp(distance * 2.6, 0, this.config.speed * plan.speedFactor);
-    const desired = Math.atan2(dx, dz);
-    const delta = Math.atan2(Math.sin(desired - robot.heading), Math.cos(desired - robot.heading));
-    robot.intake = robot.inventory.length < 4;
-    this.drive(robot, dx / Math.max(distance, 0.001), dz / Math.max(distance, 0.001), delta * 2, dt, speed);
-    if (robot.intake) this.collect(robot);
-    if (this.elapsed >= plan.nextShotAt) {
-      plan.nextShotAt = this.elapsed + 0.65 + this.random() * 1.15;
-      if (robot.inventory.length && !this.hives[robot.team].tipping) this.fire(robot);
+    const sourcePosition = plan.resource?.startsWith("flower-") ? FLOWERS[Number(plan.resource.slice(7))] : plan.resource ? this.ball(plan.resource)?.position : null;
+    const arrived = plan.mode === "collect" ? !!sourcePosition && dist(robot.position, sourcePosition) < .325 : dist(robot.position, plan.target) < this.tuning.arrivalRadius;
+    let speed = arrived ? 0 : Math.min(distance * 3.2, Math.sqrt(2 * 2.3 * distance), this.config.speed * this.tuning.cruiseFactor);
+    for (const other of neighbors) {
+      const separation = dist(robot.position, other.position);
+      const toward = dx * (other.position.x - robot.position.x) + dz * (other.position.z - robot.position.z);
+      if (separation < this.tuning.avoidanceRadius && toward > 0 && (other.id < robot.id || other.speed < .08))
+        speed *= clamp((separation - .4) / Math.max(.01, this.tuning.avoidanceRadius - .4), .15, 1);
     }
+    // Mecanum drive can strafe without spinning the chassis. Keep it aligned in
+    // narrow lanes; face a flower only when approaching its retrieval opening.
+    const nearFlower = FLOWERS.find(f => dist(robot.position, f) < .45);
+    const desired = nearFlower ? Math.atan2(nearFlower.x - robot.position.x, nearFlower.z - robot.position.z)
+      : robot.team === "red" ? Math.PI : 0;
+    const delta = Math.atan2(Math.sin(desired - robot.heading), Math.cos(desired - robot.heading));
+    if (nearFlower && Math.abs(delta) > .25) speed = Math.min(speed, .1);
+    robot.intake = plan.mode === "collect" && robot.inventory.length < 4;
+    this.drive(robot, dx / Math.max(distance, .001), dz / Math.max(distance, .001), Math.abs(delta) < .025 ? 0 : delta * 2, dt, speed);
+    if (robot.intake) this.collect(robot);
+    const ready = plan.mode === "shoot" && arrived && robot.speed <= this.tuning.shootSpeed && !hive.tipping;
+    robot.task = plan.mode === "park" ? "park" : plan.mode === "collect" ? "collect" : plan.mode === "shoot"
+      ? hive.tipping || this.hiveCommitted(robot.team) >= this.config.tipLoad ? "wait" : arrived ? "aim" : "move" : "move";
+    plan.readyFor = ready ? plan.readyFor + dt : 0;
+    if (plan.readyFor >= .12 && this.elapsed >= plan.nextShotAt && this.hiveCommitted(robot.team) < this.config.tipLoad) {
+      this.fire(robot); plan.nextShotAt = this.elapsed + this.tuning.shotInterval;
+    }
+  }
+  private clearanceScore(point: Point, neighbors: Robot[]): number {
+    return neighbors.reduce((score, robot) => Math.min(score, dist(point, robot.position)), 2);
+  }
+  private resourceTarget(id: string, side: number): Point | null {
+    if (id.startsWith("flower-")) {
+      const index = Number(id.slice(7)), flower = this.flowers[index];
+      if (!flower?.stack.length || this.ball(flower.stack[0]).kind !== "pollen") return null;
+      const f = FLOWERS[index]; return f.x * side > 0 ? safePoint({ x: f.x, z: f.z }, side) : null;
+    }
+    const ball = this.ball(id);
+    if (!ball || ball.status !== "field" || ball.mustTouchFloor || ball.position.y > .18 ||
+      this.elapsed - ball.releasedAt < .45 || (ball.kind !== "pollen" && ball.kind !== (side < 0 ? "red" : "blue")) || ball.position.x * side < .1) return null;
+    const target = safePoint(ball.position, side);
+    return navigable(target) && dist(target, ball.position) < .31 ? target : null;
+  }
+  private pickResource(robot: Robot): { id: string; target: Point } | null {
+    const side = robot.team === "red" ? -1 : 1;
+    const options: { id: string; target: Point; cost: number }[] = [];
+    for (const id of [...this.balls.map(b => b.id), ...FLOWERS.map((_, i) => "flower-" + i)]) {
+      const target = this.resourceTarget(id, side);
+      if (!target || target.x * side < 0) continue;
+      const claimed = [...this.botPlans.entries()].some(([idOther, plan]) => idOther !== robot.id && plan.resource === id && plan.mode === "collect");
+      options.push({ id, target, cost: dist(target, robot.position) + (claimed ? 1.6 : 0) + this.random() * .04 });
+    }
+    options.sort((a, b) => a.cost - b.cost);
+    return options[0] ?? null;
   }
   private assessMovement() {
     if (this.autoMovementAssessed) return;
@@ -384,10 +482,10 @@ export class Game {
     if (this.phase === "auto") for (const team of ["red", "blue"] as const) if (this.nectarAvailable(team) > 0) this.feed(team, true);
     for (const robot of this.robots) {
       if (this.phase === "auto" && Math.abs(robot.position.x) < HALF - 0.23 && Math.abs(robot.position.z) < HALF - 0.23) robot.left = true;
-      if (this.phase !== "auto") { robot.intake = false; this.drive(robot, 0, 0, 0, dt, 0); continue; }
+      if (this.phase !== "auto") { robot.intake = false; robot.task = "idle"; this.drive(robot, 0, 0, 0, dt, 0); continue; }
       this.bot(robot, dt);
+      const velocity = this.shotVelocity(robot);
       const target = this.targetPosition(robot);
-      const velocity = launchVelocity({ ...robot.position, y: 0.43 }, target, this.config.power);
       robot.turret = Math.atan2(target.x - robot.position.x, target.z - robot.position.z) - robot.heading;
       if (velocity) robot.hood = Math.atan2(velocity.y, Math.hypot(velocity.x, velocity.z));
       if (robot.id === this.controlled) this.aimValid = !!velocity && !this.hives[robot.team].tipping;
@@ -404,7 +502,7 @@ export class Game {
       const body = this.bodies.get(ball.id);
       if (!body) continue;
       ball.previous = ball.position; ball.position = { ...body.translation() };
-      if (ball.position.y < radius(ball.kind) + 0.025) ball.mustTouchFloor = false;
+      if (ball.position.y < radius(ball.kind) + 0.025) { ball.mustTouchFloor = false; ball.flight = undefined; }
       if (ball.position.y < -0.3 || Math.abs(ball.position.x) > HALF + 0.3 || Math.abs(ball.position.z) > HALF + 0.3) {
         // Out-of-bounds elements return through a loading zone, never duplicate.
         const team = ball.kind === "pollen" ? (ball.position.x < 0 ? "red" : "blue") : ball.kind;

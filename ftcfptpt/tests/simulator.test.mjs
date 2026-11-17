@@ -179,7 +179,7 @@ test("rotated chassis bounds and finite velocities are enforced before rendering
 test("autonomous steering uses angular velocity, preserving gravity and contact response", () => {
   const game = autoGame(), robot = game.robot, body = mockBody(robot.position, { x: 0, y: -.2, z: 0 });
   let teleports = 0, angular;
-  body.rotation = () => ({ x: 0, y: 1, z: 0, w: 0 }); body.setRotation = () => { teleports++; }; body.setAngvel = value => { angular = value; };
+  body.rotation = () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }); body.setRotation = () => { teleports++; }; body.setAngvel = value => { angular = value; };
   game.bodies.set("robot-0", body); game.tick(1 / 60);
   assert.equal(teleports, 0); assert.ok(Math.abs(angular.y) > 0 && Math.abs(angular.y) <= 2.4);
   assert.equal(body.linvel().y, -.2);

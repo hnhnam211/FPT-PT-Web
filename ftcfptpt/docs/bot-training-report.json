@@ -1,0 +1,1007 @@
+{
+  "date": "2026-11-17",
+  "simulator": "BIOBUZZ TU09 / AUTO 30s",
+  "config": {
+    "team": "red",
+    "speed": 1.55,
+    "power": 5.8,
+    "tipLoad": 8,
+    "trajectory": true,
+    "quality": "high"
+  },
+  "method": {
+    "type": "Heuristic controller calibration by seeded Rapier rollouts",
+    "parameterSearch": {
+      "seeds": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "candidates": 12,
+      "rollouts": 48,
+      "fitness": "meanScore + 12*hitRate - 3*blockedSeconds - 1000*escapes"
+    },
+    "refinement": "After parameter search, chassis steering was aligned for mecanum lanes and flower approaches.",
+    "validation": {
+      "pairedSeeds": [
+        201,
+        202,
+        203,
+        204,
+        205,
+        206,
+        207,
+        208
+      ],
+      "excludedFromParameterSearch": true,
+      "physicalModel": "Same nominal colliders, gravity, mass, friction, damping, CCD and 60Hz step as Scene.tsx."
+    },
+    "limitations": "Simulation-only measurements on this nominal field. Controller tuning, not neural-network training or real-robot certification."
+  },
+  "baseline": {
+    "commit": "e7b507ced3424c6109108185ef2cadbe48c930a6",
+    "file": "ftcfptpt/src/simulator/game.ts",
+    "sha256Normalized": "d80ef795fb32f7f39b396cab60528dacafcb862c2d1f5152ae576678fcbc3c12"
+  },
+  "selectedPolicy": {
+    "cruiseFactor": 0.95,
+    "arrivalRadius": 0.12,
+    "shootSpeed": 0.1,
+    "aimLift": 0.08,
+    "shotInterval": 0.55,
+    "avoidanceRadius": 0.48,
+    "parkLead": 2.8,
+    "outerStation": 1.47,
+    "tractionCompensation": 0.6
+  },
+  "before": {
+    "matches": 8,
+    "shots": 154,
+    "hiveHits": 108,
+    "hitRate": 0.7012987012987013,
+    "meanScore": 52,
+    "meanTips": 2,
+    "meanPickups": 3.25,
+    "meanBlockedSeconds": 7.170833333333386,
+    "meanTravel": 33.71056292630813,
+    "escapes": 0,
+    "maxSpeed": 0.9078542132094535
+  },
+  "after": {
+    "matches": 8,
+    "shots": 397,
+    "hiveHits": 395,
+    "hitRate": 0.9949622166246851,
+    "meanScore": 156.375,
+    "meanTips": 6.75,
+    "meanPickups": 38,
+    "meanBlockedSeconds": 2.7458333333333282,
+    "meanTravel": 53.8829077970473,
+    "escapes": 0,
+    "maxSpeed": 1.4817389225276214
+  },
+  "improvements": {
+    "hitRatePercentagePoints": 29.36635153259838,
+    "meanScoreFactor": 3.0072115384615383,
+    "blockedTimeReductionPercent": 61.70830912260349
+  },
+  "metricDefinitions": {
+    "hitRate": "Actual CELL aperture entries / launched balls; excludes FLOWER entries.",
+    "meanScore": "Combined red + blue AUTO points per match.",
+    "meanBlockedSeconds": "Summed over four robots: commanded speed >0.2m/s but actual progress <0.1m/s during AUTO.",
+    "meanPickups": "Actual loose-ball / flower-POLLEN transfers into hoppers per match."
+  },
+  "validationMatches": {
+    "before": [
+      {
+        "seed": 201,
+        "shots": 16,
+        "hiveHits": 14,
+        "flowerHits": 0,
+        "pickups": 0,
+        "hitRate": 0.875,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 9.033333333333362,
+        "travel": 39.09246794855915,
+        "maxSpeed": 0.8522919762096397,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "28668",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "3141",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "5927",
+            "shots": 4,
+            "hits": 2
+          }
+        ]
+      },
+      {
+        "seed": 202,
+        "shots": 21,
+        "hiveHits": 16,
+        "flowerHits": 0,
+        "pickups": 5,
+        "hitRate": 0.7619047619047619,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 5.649999999999985,
+        "travel": 31.699237102031088,
+        "maxSpeed": 0.8368016968880209,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 6,
+            "hits": 6
+          },
+          {
+            "number": "28668",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "3141",
+            "shots": 7,
+            "hits": 5
+          },
+          {
+            "number": "5927",
+            "shots": 4,
+            "hits": 1
+          }
+        ]
+      },
+      {
+        "seed": 203,
+        "shots": 21,
+        "hiveHits": 13,
+        "flowerHits": 0,
+        "pickups": 5,
+        "hitRate": 0.6190476190476191,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 12.200000000000186,
+        "travel": 28.132065954476968,
+        "maxSpeed": 0.7449126863142441,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 4,
+            "hits": 2
+          },
+          {
+            "number": "28668",
+            "shots": 5,
+            "hits": 5
+          },
+          {
+            "number": "3141",
+            "shots": 4,
+            "hits": 3
+          },
+          {
+            "number": "5927",
+            "shots": 8,
+            "hits": 3
+          }
+        ]
+      },
+      {
+        "seed": 204,
+        "shots": 21,
+        "hiveHits": 16,
+        "flowerHits": 0,
+        "pickups": 5,
+        "hitRate": 0.7619047619047619,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 6.466666666666649,
+        "travel": 35.20317815078994,
+        "maxSpeed": 0.8167226592162375,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "28668",
+            "shots": 5,
+            "hits": 4
+          },
+          {
+            "number": "3141",
+            "shots": 7,
+            "hits": 5
+          },
+          {
+            "number": "5927",
+            "shots": 5,
+            "hits": 3
+          }
+        ]
+      },
+      {
+        "seed": 205,
+        "shots": 17,
+        "hiveHits": 14,
+        "flowerHits": 0,
+        "pickups": 1,
+        "hitRate": 0.8235294117647058,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 5.733333333333318,
+        "travel": 31.317496469425564,
+        "maxSpeed": 0.7775979954263579,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 4,
+            "hits": 2
+          },
+          {
+            "number": "28668",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "3141",
+            "shots": 4,
+            "hits": 4
+          },
+          {
+            "number": "5927",
+            "shots": 5,
+            "hits": 4
+          }
+        ]
+      },
+      {
+        "seed": 206,
+        "shots": 18,
+        "hiveHits": 12,
+        "flowerHits": 0,
+        "pickups": 2,
+        "hitRate": 0.6666666666666666,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 3.3333333333333264,
+        "travel": 37.760143699257235,
+        "maxSpeed": 0.7882510360508285,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 5,
+            "hits": 2
+          },
+          {
+            "number": "28668",
+            "shots": 4,
+            "hits": 3
+          },
+          {
+            "number": "3141",
+            "shots": 4,
+            "hits": 3
+          },
+          {
+            "number": "5927",
+            "shots": 5,
+            "hits": 4
+          }
+        ]
+      },
+      {
+        "seed": 207,
+        "shots": 20,
+        "hiveHits": 13,
+        "flowerHits": 0,
+        "pickups": 4,
+        "hitRate": 0.65,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 1.3333333333333335,
+        "travel": 36.98028086192682,
+        "maxSpeed": 0.7823879886846096,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 4,
+            "hits": 3
+          },
+          {
+            "number": "28668",
+            "shots": 5,
+            "hits": 4
+          },
+          {
+            "number": "3141",
+            "shots": 7,
+            "hits": 3
+          },
+          {
+            "number": "5927",
+            "shots": 4,
+            "hits": 3
+          }
+        ]
+      },
+      {
+        "seed": 208,
+        "shots": 20,
+        "hiveHits": 10,
+        "flowerHits": 0,
+        "pickups": 4,
+        "hitRate": 0.5,
+        "tips": 2,
+        "score": 52,
+        "blockedSeconds": 13.616666666666923,
+        "travel": 29.499633223998266,
+        "maxSpeed": 0.9078542132094535,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 4,
+            "hits": 2
+          },
+          {
+            "number": "28668",
+            "shots": 4,
+            "hits": 2
+          },
+          {
+            "number": "3141",
+            "shots": 7,
+            "hits": 3
+          },
+          {
+            "number": "5927",
+            "shots": 5,
+            "hits": 3
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "seed": 201,
+        "shots": 49,
+        "hiveHits": 49,
+        "flowerHits": 0,
+        "pickups": 39,
+        "hitRate": 1,
+        "tips": 6,
+        "score": 137,
+        "blockedSeconds": 5.399999999999986,
+        "travel": 55.171371686186085,
+        "maxSpeed": 1.481063015078917,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 13,
+            "hits": 13
+          },
+          {
+            "number": "28668",
+            "shots": 10,
+            "hits": 10
+          },
+          {
+            "number": "3141",
+            "shots": 17,
+            "hits": 17
+          },
+          {
+            "number": "5927",
+            "shots": 9,
+            "hits": 9
+          }
+        ]
+      },
+      {
+        "seed": 202,
+        "shots": 51,
+        "hiveHits": 50,
+        "flowerHits": 0,
+        "pickups": 38,
+        "hitRate": 0.9803921568627451,
+        "tips": 7,
+        "score": 162,
+        "blockedSeconds": 0.05,
+        "travel": 56.987550764972,
+        "maxSpeed": 1.4786340081174942,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 13,
+            "hits": 13
+          },
+          {
+            "number": "28668",
+            "shots": 10,
+            "hits": 9
+          },
+          {
+            "number": "3141",
+            "shots": 16,
+            "hits": 16
+          },
+          {
+            "number": "5927",
+            "shots": 12,
+            "hits": 12
+          }
+        ]
+      },
+      {
+        "seed": 203,
+        "shots": 49,
+        "hiveHits": 48,
+        "flowerHits": 0,
+        "pickups": 37,
+        "hitRate": 0.9795918367346939,
+        "tips": 7,
+        "score": 167,
+        "blockedSeconds": 4.049999999999991,
+        "travel": 52.95524988001723,
+        "maxSpeed": 1.4817389225276214,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 13,
+            "hits": 12
+          },
+          {
+            "number": "28668",
+            "shots": 9,
+            "hits": 9
+          },
+          {
+            "number": "3141",
+            "shots": 18,
+            "hits": 18
+          },
+          {
+            "number": "5927",
+            "shots": 9,
+            "hits": 9
+          }
+        ]
+      },
+      {
+        "seed": 204,
+        "shots": 49,
+        "hiveHits": 49,
+        "flowerHits": 0,
+        "pickups": 39,
+        "hitRate": 1,
+        "tips": 7,
+        "score": 157,
+        "blockedSeconds": 3.2499999999999933,
+        "travel": 55.97716445522363,
+        "maxSpeed": 1.4798836562804787,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 12,
+            "hits": 12
+          },
+          {
+            "number": "28668",
+            "shots": 10,
+            "hits": 10
+          },
+          {
+            "number": "3141",
+            "shots": 15,
+            "hits": 15
+          },
+          {
+            "number": "5927",
+            "shots": 12,
+            "hits": 12
+          }
+        ]
+      },
+      {
+        "seed": 205,
+        "shots": 48,
+        "hiveHits": 48,
+        "flowerHits": 0,
+        "pickups": 36,
+        "hitRate": 1,
+        "tips": 7,
+        "score": 162,
+        "blockedSeconds": 3.133333333333327,
+        "travel": 52.86583947457708,
+        "maxSpeed": 1.4744432068169244,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 11,
+            "hits": 11
+          },
+          {
+            "number": "28668",
+            "shots": 10,
+            "hits": 10
+          },
+          {
+            "number": "3141",
+            "shots": 17,
+            "hits": 17
+          },
+          {
+            "number": "5927",
+            "shots": 10,
+            "hits": 10
+          }
+        ]
+      },
+      {
+        "seed": 206,
+        "shots": 54,
+        "hiveHits": 54,
+        "flowerHits": 0,
+        "pickups": 38,
+        "hitRate": 1,
+        "tips": 7,
+        "score": 162,
+        "blockedSeconds": 1.4999999999999996,
+        "travel": 51.56212142879858,
+        "maxSpeed": 1.4789112051535442,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 13,
+            "hits": 13
+          },
+          {
+            "number": "28668",
+            "shots": 9,
+            "hits": 9
+          },
+          {
+            "number": "3141",
+            "shots": 21,
+            "hits": 21
+          },
+          {
+            "number": "5927",
+            "shots": 11,
+            "hits": 11
+          }
+        ]
+      },
+      {
+        "seed": 207,
+        "shots": 52,
+        "hiveHits": 52,
+        "flowerHits": 0,
+        "pickups": 39,
+        "hitRate": 1,
+        "tips": 7,
+        "score": 167,
+        "blockedSeconds": 1.8999999999999981,
+        "travel": 53.35938282828842,
+        "maxSpeed": 1.4753763506975845,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 14,
+            "hits": 14
+          },
+          {
+            "number": "28668",
+            "shots": 10,
+            "hits": 10
+          },
+          {
+            "number": "3141",
+            "shots": 16,
+            "hits": 16
+          },
+          {
+            "number": "5927",
+            "shots": 12,
+            "hits": 12
+          }
+        ]
+      },
+      {
+        "seed": 208,
+        "shots": 45,
+        "hiveHits": 45,
+        "flowerHits": 0,
+        "pickups": 38,
+        "hitRate": 1,
+        "tips": 6,
+        "score": 137,
+        "blockedSeconds": 2.6833333333333287,
+        "travel": 52.18458185831545,
+        "maxSpeed": 1.4758660655886928,
+        "escapes": 0,
+        "ended": true,
+        "robots": [
+          {
+            "number": "23321",
+            "shots": 12,
+            "hits": 12
+          },
+          {
+            "number": "28668",
+            "shots": 5,
+            "hits": 5
+          },
+          {
+            "number": "3141",
+            "shots": 19,
+            "hits": 19
+          },
+          {
+            "number": "5927",
+            "shots": 9,
+            "hits": 9
+          }
+        ]
+      }
+    ]
+  },
+  "searchResults": [
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.6
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 203,
+        "hiveHits": 203,
+        "hitRate": 1,
+        "meanScore": 155.75,
+        "meanTips": 6.75,
+        "meanBlockedSeconds": 4.745833333333326,
+        "meanTravel": 51.27797436523112,
+        "escapes": 0,
+        "maxSpeed": 1.5818820646292187
+      },
+      "fitness": 153.51250000000002
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.85,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 204,
+        "hiveHits": 203,
+        "hitRate": 0.9950980392156863,
+        "meanScore": 167,
+        "meanTips": 7.25,
+        "meanBlockedSeconds": 9.050000000000075,
+        "meanTravel": 51.02004539666739,
+        "escapes": 0,
+        "maxSpeed": 1.8024317081751318
+      },
+      "fitness": 151.791176470588
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.85,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.56,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 194,
+        "hiveHits": 193,
+        "hitRate": 0.9948453608247423,
+        "meanScore": 149.5,
+        "meanTips": 6.5,
+        "meanBlockedSeconds": 5.04166666666666,
+        "meanTravel": 50.71242894608966,
+        "escapes": 0,
+        "maxSpeed": 1.4855391596549183
+      },
+      "fitness": 146.31314432989694
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.8
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 203,
+        "hiveHits": 203,
+        "hitRate": 1,
+        "meanScore": 155.75,
+        "meanTips": 6.75,
+        "meanBlockedSeconds": 18.17083333333353,
+        "meanTravel": 56.591595313508435,
+        "escapes": 0,
+        "maxSpeed": 1.6551281525767716
+      },
+      "fitness": 113.23749999999941
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.75,
+        "arrivalRadius": 0.1,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.52,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 196,
+        "hiveHits": 196,
+        "hitRate": 1,
+        "meanScore": 150.75,
+        "meanTips": 6.5,
+        "meanBlockedSeconds": 16.65416666666682,
+        "meanTravel": 49.91725910551879,
+        "escapes": 0,
+        "maxSpeed": 1.2965604618560445
+      },
+      "fitness": 112.78749999999954
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 200,
+        "hiveHits": 197,
+        "hitRate": 0.985,
+        "meanScore": 148.25,
+        "meanTips": 6.5,
+        "meanBlockedSeconds": 20.80833333333309,
+        "meanTravel": 53.04983113701276,
+        "escapes": 0,
+        "maxSpeed": 1.4181324317413635
+      },
+      "fitness": 97.64500000000072
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 0,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 201,
+        "hiveHits": 198,
+        "hitRate": 0.9850746268656716,
+        "meanScore": 148.25,
+        "meanTips": 6.75,
+        "meanBlockedSeconds": 21.091666666666427,
+        "meanTravel": 52.660513963886494,
+        "escapes": 0,
+        "maxSpeed": 1.4181324317413635
+      },
+      "fitness": 96.79589552238879
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.04,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 180,
+        "hiveHits": 179,
+        "hitRate": 0.9944444444444445,
+        "meanScore": 145.75,
+        "meanTips": 6.25,
+        "meanBlockedSeconds": 23.58749999999972,
+        "meanTravel": 48.11369410467788,
+        "escapes": 0,
+        "maxSpeed": 1.5477425570090646
+      },
+      "fitness": 86.92083333333417
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.4,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 184,
+        "hiveHits": 180,
+        "hitRate": 0.9782608695652174,
+        "meanScore": 133.25,
+        "meanTips": 5.75,
+        "meanBlockedSeconds": 27.595833333333026,
+        "meanTravel": 47.393002735521165,
+        "escapes": 0,
+        "maxSpeed": 1.5594214815679937
+      },
+      "fitness": 62.20163043478354
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.85,
+        "arrivalRadius": 0.12,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.56,
+        "parkLead": 2.8,
+        "outerStation": 1.38,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 128,
+        "hiveHits": 128,
+        "hitRate": 1,
+        "meanScore": 105.75,
+        "meanTips": 4.25,
+        "meanBlockedSeconds": 34.624999999999275,
+        "meanTravel": 38.269486873892944,
+        "escapes": 0,
+        "maxSpeed": 1.415372412627555
+      },
+      "fitness": 13.875000000002174
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.85,
+        "arrivalRadius": 0.16,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 1.5,
+        "outerStation": 1.38,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 137,
+        "hiveHits": 137,
+        "hitRate": 1,
+        "meanScore": 105.75,
+        "meanTips": 4.5,
+        "meanBlockedSeconds": 35.462499999999274,
+        "meanTravel": 36.28286426902574,
+        "escapes": 0,
+        "maxSpeed": 1.5791348748606395
+      },
+      "fitness": 11.362500000002171
+    },
+    {
+      "tuning": {
+        "cruiseFactor": 0.95,
+        "arrivalRadius": 0.16,
+        "shootSpeed": 0.1,
+        "aimLift": 0.08,
+        "shotInterval": 0.55,
+        "avoidanceRadius": 0.48,
+        "parkLead": 2.8,
+        "outerStation": 1.47,
+        "tractionCompensation": 0.7
+      },
+      "summary": {
+        "matches": 4,
+        "shots": 150,
+        "hiveHits": 150,
+        "hitRate": 1,
+        "meanScore": 120.75,
+        "meanTips": 5,
+        "meanBlockedSeconds": 47.77916666666523,
+        "meanTravel": 39.2656497367137,
+        "escapes": 0,
+        "maxSpeed": 1.5698927349287137
+      },
+      "fitness": -10.587499999995714
+    }
+  ]
+}
