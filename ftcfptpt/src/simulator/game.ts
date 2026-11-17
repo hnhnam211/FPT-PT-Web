@@ -235,6 +235,10 @@ export class Game {
     const target = this.targetPosition(robot);
     return launchVelocity({ ...robot.position, y: .43 }, { ...target, y: target.y + this.tuning.aimLift }, this.config.power);
   }
+  shotPreview(robot: Robot = this.robot) {
+    const velocity = this.shotVelocity(robot);
+    return velocity ? { from: { ...robot.position, y: .43 }, velocity, target: this.targetPosition(robot), side: this.hives[robot.team].side } : null;
+  }
   private hiveCommitted(team: Team): number {
     const hive = this.hives[team];
     const weight = (ball: Ball) => ball.kind === "pollen" ? 1 : 1.5;

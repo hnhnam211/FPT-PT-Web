@@ -6,6 +6,7 @@ import type { RapierRigidBody } from "@react-three/rapier";
 import * as THREE from "three";
 import { COLORS, FIELD, FLOWERS, Game, HALF, ROBOT_HALF, hiveTarget, radius } from "./game";
 import type { Ball, Hive, Robot, Team, Vec } from "./game";
+import ShotPaths from "./ShotPaths";
 
 export type CameraMode = "follow" | "overhead" | "orbit" | "driver";
 export type CameraInfo = { visible: boolean; distance: number; yaw: number; tag: string };
@@ -274,28 +275,6 @@ function Bridge({ game }: { game: Game }) {
   useAfterPhysicsStep(() => game.syncRobotPoses());
   return null;
 }
-function Trajectory({ game }: { game: Game }) {
-  const ref = useRef<THREE.Line>(null);
-  const line = useMemo(() => {
-    const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(90 * 3), 3));
-    const material = new THREE.LineDashedMaterial({ color: "#f4cc36", dashSize: 0.035, gapSize: 0.025, transparent: true, opacity: 0.5 });
-    return new THREE.Line(geometry, material);
-  }, []);
-  useEffect(() => () => { line.geometry.dispose(); (line.material as THREE.Material).dispose(); }, [line]);
-  useFrame(() => {
-    const robot = game.robot, h = robot.heading + robot.turret;
-    line.visible = game.aimValid && game.config.trajectory && !game.paused && game.phase === "auto";
-    const data = line.geometry.attributes.position.array as Float32Array;
-    for (let i = 0; i < 90; i++) {
-      const t = i * 0.018;
-      data[i * 3] = robot.position.x + Math.sin(h) * game.config.power * Math.cos(robot.hood) * t;
-      data[i * 3 + 1] = Math.max(0.02, 0.43 + game.config.power * Math.sin(robot.hood) * t - 4.905 * t * t);
-      data[i * 3 + 2] = robot.position.z + Math.cos(h) * game.config.power * Math.cos(robot.hood) * t;
-    }
-    line.geometry.attributes.position.needsUpdate = true; line.computeLineDistances();
-  });
-  return <primitive ref={ref} object={line} />;
-}
 const World = memo(function World({ game }: { game: Game }) {
   return <>
     <Floor /><Frame />
@@ -303,7 +282,7 @@ const World = memo(function World({ game }: { game: Game }) {
     {FLOWERS.map((_, index) => <FlowerModel key={index} game={game} index={index} />)}
     {game.robots.map(robot => <RobotBody key={robot.id} game={game} robot={robot} />)}
     {game.balls.map(ball => <BallBody key={ball.id} game={game} ball={ball} />)}
-    <Trajectory game={game} /><Bridge game={game} />
+    <ShotPaths game={game} /><Bridge game={game} />
   </>;
 });
 

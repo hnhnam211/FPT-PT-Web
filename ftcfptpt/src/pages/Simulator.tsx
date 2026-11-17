@@ -115,6 +115,7 @@ function RobotTelemetry({ game }: { game: Game }) {
     <div className="sim-hive-progress"><span>HIVE {r.team === "red" ? "ĐỎ" : "XANH"} · CELL {hive.side === 1 ? "GẦN" : "XA"}</span><b>{hive.tipping ? "ĐANG LẬT" : `${progress.toFixed(0)}% tới TIP`}</b></div>
     <div className="sim-progress-track"><i style={{ width: `${progress}%` }} /></div>
     <div className="sim-telemetry-bottom"><span>BẮN {r.shots} · VÀO {r.hits} · {r.shots ? Math.round(r.hits / r.shots * 100) : 0}%</span><span title="Điện áp mô phỏng">{(12.6 - r.speed * 0.22).toFixed(1)} V · {speed.toFixed(0)} in/s</span></div>
+    {game.config.trajectory && <div className="sim-path-key" aria-label="Chú thích đường bóng"><span><i style={{ background: "#ffe76b" }} />DỰ KIẾN</span><span><i style={{ background: "#ff7186" }} />ĐỎ</span><span><i style={{ background: "#66dcff" }} />XANH</span></div>}
   </aside>;
 }
 function FlowerPanel({ game }: { game: Game }) {
@@ -153,7 +154,7 @@ function Settings({ game, close, reset, camera, setCamera }: {
     <div className="sim-dialog-header"><div><span className="sim-eyebrow">BIOBUZZ · TU09</span><h2 id="sim-settings-title">TRẠM ĐIỀU KHIỂN.</h2></div><button onClick={close} aria-label="Đóng cài đặt">×</button></div>
     <label>ROBOT THEO DÕI<select value={game.controlled} onChange={e => game.selectRobot(Number(e.target.value))}>{game.robots.map(r => <option key={r.id} value={r.id}>{r.team === "red" ? "Đỏ" : "Xanh"} {r.id % 2 + 1} · #{r.number}</option>)}</select></label>
     <label>GÓC NHÌN<select value={camera} onChange={e => setCamera(e.target.value as CameraMode)}>{CAMERAS.map(c => <option key={c} value={c}>{CAMERA_NAMES[c]}</option>)}</select></label>
-    <label className="sim-toggle-row">HIỂN THỊ ĐƯỜNG ĐẠN<input type="checkbox" checked={game.config.trajectory} onChange={e => update("trajectory", e.target.checked)} /></label>
+    <label className="sim-toggle-row">HIỂN THỊ ĐƯỜNG BÓNG<input type="checkbox" checked={game.config.trajectory} onChange={e => update("trajectory", e.target.checked)} /></label>
     <label>TỐC ĐỘ ROBOT AUTO <b>{game.config.speed.toFixed(2)} m/s</b><input type="range" min="0.4" max="2.8" step="0.05" value={game.config.speed} onChange={e => update("speed", Number(e.target.value))} /></label>
     <label>LỰC BẮN <b>{game.config.power.toFixed(1)} m/s</b><input type="range" min="3.5" max="8" step="0.1" value={game.config.power} onChange={e => update("power", Number(e.target.value))} /></label>
     <label>NGƯỠNG LẬT HIVE <b>{game.config.tipLoad} tải quy đổi</b><input type="range" min="5" max="15" step="0.5" value={game.config.tipLoad} onChange={e => update("tipLoad", Number(e.target.value))} /><small>Thông số mô phỏng: POLLEN = 1, NECTAR = 1,5. Manual không quy định lực lật; cần hiệu chỉnh từ sân thật.</small></label>
@@ -260,7 +261,7 @@ export default function Simulator() {
       {game.phase === "ready" && <small>AUTO 0:30 · 4 BOT TỐI ƯU · CHỐT ĐIỂM</small>}
     </div>}
     <div className="sim-bottom-bar"><div className="sim-brand"><i />BIOBUZZ <span>SIMULATOR</span><small>TU09</small></div>
-      <div className="sim-toolbar"><button onClick={() => game.start()} disabled={game.phase === "ended"} title="Bắt đầu / tạm dừng (P)" aria-label={game.paused ? "Bắt đầu hoặc tiếp tục" : "Tạm dừng"}>{game.paused ? "▶" : "Ⅱ"}</button><button onClick={reset} title="Chạy lại AUTO (R)" aria-label="Chạy lại AUTO">↻</button><span className="sim-toolbar-divider" /><button className="sim-robot-switch" onClick={() => game.selectRobot((game.controlled + 1) % 4)} title="Chọn robot theo dõi (1–4)">#{game.robot.number}</button><button className="sim-camera-switch" onClick={cycleCamera} title="Đổi camera (C)">◉ <span>{CAMERA_NAMES[camera]}</span></button><button onClick={() => { game.config.trajectory = !game.config.trajectory; game.emit(); }} className={game.config.trajectory ? "active" : ""} title="Hiển thị đường đạn">⊕ <span>ĐƯỜNG ĐẠN</span></button><button onClick={fullScreen} title="Toàn màn hình" aria-label="Toàn màn hình">⛶</button></div>
+      <div className="sim-toolbar"><button onClick={() => game.start()} disabled={game.phase === "ended"} title="Bắt đầu / tạm dừng (P)" aria-label={game.paused ? "Bắt đầu hoặc tiếp tục" : "Tạm dừng"}>{game.paused ? "▶" : "Ⅱ"}</button><button onClick={reset} title="Chạy lại AUTO (R)" aria-label="Chạy lại AUTO">↻</button><span className="sim-toolbar-divider" /><button className="sim-robot-switch" onClick={() => game.selectRobot((game.controlled + 1) % 4)} title="Chọn robot theo dõi (1–4)">#{game.robot.number}</button><button className="sim-camera-switch" onClick={cycleCamera} title="Đổi camera (C)">◉ <span>{CAMERA_NAMES[camera]}</span></button><button onClick={() => { game.config.trajectory = !game.config.trajectory; game.emit(); }} className={game.config.trajectory ? "active" : ""} title="Hiển thị đường bóng" aria-pressed={game.config.trajectory}>⊕ <span>ĐƯỜNG BÓNG</span></button><button onClick={fullScreen} title="Toàn màn hình" aria-label="Toàn màn hình">⛶</button></div>
       <span className="sim-bottom-status">AUTO / {PHASE_NAMES[game.phase]}</span>
     </div>
     {help && <Help close={() => setHelp(false)} />}
