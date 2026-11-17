@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, DEFAULT_CONFIG, FLOWERS } from '../src/simulator/game.ts';
 import { planPath, segmentClear, safePoint, navigable } from '../src/simulator/bot-navigation.ts';
+import { avoidTraffic } from '../src/simulator/bot-traffic.ts';
 
 const body = (position, velocity = { x: 0, y: 0, z: 0 }) => ({
   p: { ...position }, v: { ...velocity },
@@ -10,6 +11,27 @@ const body = (position, velocity = { x: 0, y: 0, z: 0 }) => ({
   setAngvel() {}, setRotation() {}, setEnabled() {},
 });
 const create = () => { const game = new Game(DEFAULT_CONFIG, () => .5); game.start(); return game; };
+
+test('predictive steering brakes for another chassis before reaching physical contact', () => {
+  const self = { id: 1, position: { x: -1.3, z: -.8 }, velocity: { x: 0, z: .5 }, heading: 0 };
+  const other = { id: 0, position: { x: -1.3, z: 0 }, velocity: { x: 0, z: 0 }, heading: 0 };
+  const safe = avoidTraffic(self,{x:0,z:1.2},[other],-1,{x:-1.3,z:1});
+  assert.ok(safe.z < .8);
+  for (const t of [.2,.4,.6,.8]) {
+    const response = .08 * (1 - Math.exp(-t/.08));
+    const dx = self.position.x + safe.x*t - safe.x*response - other.position.x;
+    const dz = self.position.z + safe.z*t + (.5-safe.z)*response - other.position.z;
+    assert.ok(Math.abs(dx) > .4 || Math.abs(dz) > .42, 'the planned rectangles remain separated');
+  }
+});
+
+test('passing maneuvers respect frame clearance and do not brake unobstructed routes', () => {
+  const self = { id: 1, position: { x: -1.05, z: 0 }, velocity: { x: 0, z: 0 }, heading: Math.PI };
+  const desired = { x: .8, z: 0 };
+  assert.deepEqual(avoidTraffic(self,desired,[],-1),desired);
+  const safe = avoidTraffic(self,desired,[{id:0,position:{x:-1.4,z:1.2},velocity:{x:0,z:0},heading:0}],-1);
+  assert.ok(segmentClear(self.position,{x:self.position.x+safe.x*.8,z:self.position.z+safe.z*.8}));
+});
 
 test('routes pass around the inflated A-frame on the correct alliance half', () => {
   for (const side of [-1, 1]) {

@@ -2,9 +2,13 @@
 // The hive load threshold is a tunable simulation parameter, not an official rule.
 import { BOT_POLICY, type BotTuning } from "./bot-policy.ts";
 import { navigable, planPath, safePoint, type Point } from "./bot-navigation.ts";
+import { avoidTraffic, type TrafficRobot } from "./bot-traffic.ts";
 export type Team = "red" | "blue";
 export type BallKind = "pollen" | Team;
-export type Phase = "ready" | "auto" | "settling" | "ended";
+export type MatchMode = "auto" | "teleop" | "full";
+export type Phase = "ready" | "auto" | "transition" | "teleop" | "settling" | "ended";
+export const PERIOD_SECONDS = { auto: 30, transition: 8, teleop: 120 };
+export type DriverInput = { x: number; z: number; turn: number; shoot: boolean };
 export type Vec = { x: number; y: number; z: number };
 export type Body = {
   translation(): Vec;
@@ -34,6 +38,9 @@ export const loading = (team: Team, p: Vec, margin = 0) => team === "red"
   ? p.x < -HALF + 0.2795 + margin && p.z > -1.2192 - margin && p.z < -0.635 + margin
   : p.x > HALF - 0.2795 - margin && p.z > 0.635 - margin && p.z < 1.2192 + margin;
 export interface Config {
+  matchMode: MatchMode;
+  autoTipLimit: 1 | 2 | 3;
+  teleopControl: "bots" | "manual";
   team: Team;
   speed: number;
   power: number;
@@ -42,6 +49,7 @@ export interface Config {
   quality: "high" | "low";
 }
 export const DEFAULT_CONFIG: Config = {
+  matchMode: "auto", autoTipLimit: 3, teleopControl: "bots",
   team: "red", speed: 1.55,
   power: 5.8, tipLoad: 8, trajectory: true, quality: "high",
 };
@@ -49,6 +57,7 @@ export interface Ball {
   id: string; kind: BallKind; status: "field" | "held" | "hive" | "flower" | "reserve";
   position: Vec; previous: Vec; launchedBy: number | null; releasedAt: number;
   mustTouchFloor: boolean;
+  deliveryFlower?: number;
   flight?: { team: Team; side: number; arrivalAt: number };
 }
 export interface Robot {
@@ -56,7 +65,7 @@ export interface Robot {
   turret: number; hood: number; inventory: string[]; intake: boolean;
   lastShot: number; lastPickup: number; shots: number; hits: number;
   speed: number; left: boolean;
-  task: "idle" | "move" | "collect" | "aim" | "wait" | "park";
+  task: "idle" | "move" | "collect" | "aim" | "wait" | "park" | "deliver" | "yield";
 }
 export interface Hive {
   team: Team; side: number; angle: number; tips: number; load: string[];
@@ -65,7 +74,8 @@ export interface Hive {
 export interface Flower { stack: string[] }
 export interface Event { id: number; text: string; team?: Team; at: number }
 interface BotPlan {
-  mode: "shoot" | "collect" | "park" | "roam";
+  mode: "shoot" | "collect" | "park" | "roam" | "flower";
+  flowerIndex?: number;
   target: Point;
   resource?: string;
   hiveSide: number;
@@ -117,6 +127,16 @@ export class Game {
   penalties = zeroScore();
   score = zeroScore();
   settled = false;
+  scoringPeriod: "auto" | "teleop" = "auto";
+  autoTips = zeroScore();
+  autoEarned = zeroScore();
+  teleopPark = zeroScore();
+  cellScore = zeroScore();
+  flowerScore = zeroScore();
+  gardenScore = zeroScore();
+  flowerDeposits = { pollen: 0, red: 0, blue: 0 };
+  input: DriverInput = { x: 0, z: 0, turn: 0, shoot: false };
+  touchInput: DriverInput = { x: 0, z: 0, turn: 0, shoot: false };
   private settlingElapsed = 0;
   private autoMovementAssessed = false;
   aimValid = false;
@@ -129,12 +149,17 @@ export class Game {
   private spawnPositions: Vec[];
   private random: () => number;
   private botPlans = new Map<number, BotPlan>();
+  private traffic = new Map<number, TrafficRobot>();
   private tuning: BotTuning;
   subscribe = (callback: () => void) => { this.listeners.add(callback); return () => { this.listeners.delete(callback); }; };
   getSnapshot = () => this.revision;
   emit() { this.revision++; this.listeners.forEach(fn => fn()); }
   constructor(config: Config = DEFAULT_CONFIG, random: () => number = Math.random, tuning: Partial<BotTuning> = {}) {
-    this.config = { ...config };
+    this.config = { ...DEFAULT_CONFIG, ...config };
+    if (!["auto", "teleop", "full"].includes(this.config.matchMode)) this.config.matchMode = "auto";
+    if (![1, 2, 3].includes(this.config.autoTipLimit)) this.config.autoTipLimit = 3;
+    if (!["bots", "manual"].includes(this.config.teleopControl)) this.config.teleopControl = "bots";
+    this.remaining = this.config.matchMode === "teleop" ? PERIOD_SECONDS.teleop : PERIOD_SECONDS.auto;
     this.random = random;
     this.tuning = { ...BOT_POLICY, ...tuning };
     this.controlled = config.team === "red" ? 0 : 2;
@@ -177,13 +202,53 @@ export class Game {
   start() {
     if (this.phase === "ended") return;
     if (this.phase === "ready") {
-      this.phase = "auto";
-      this.note("AUTO · Bot tự tìm đường, lấy bóng và căn ném trong 30 giây");
+      if (this.config.matchMode === "teleop") this.beginTeleop();
+      else {
+        this.phase = "auto";
+        this.note(`AUTO · Tối đa ${this.config.autoTipLimit} HIVE TIP mỗi liên minh trong 30 giây`);
+      }
     }
     this.paused = !this.paused;
+    if (this.paused) this.clearInput();
     this.emit();
   }
-  selectRobot(id: number) { this.controlled = id; this.config.team = this.robot.team; this.emit(); }
+  selectRobot(id: number) { if (!this.robots[id]) return; this.clearInput(); this.controlled = id; this.config.team = this.robot.team; this.botPlans.clear(); this.emit(); }
+  clearInput() { this.input = { x: 0, z: 0, turn: 0, shoot: false }; this.touchInput = { ...this.input }; }
+  get activePlay() { return this.phase === "auto" || this.phase === "teleop"; }
+  get manualDriving() { return this.phase === "teleop" && this.config.teleopControl === "manual"; }
+  autoTipLimitReached(team: Team) { return this.scoringPeriod === "auto" && this.autoTips[team] >= this.config.autoTipLimit; }
+  toggleIntake() { if (this.manualDriving && !this.paused) { this.robot.intake = !this.robot.intake; this.emit(); } }
+  place(robot = this.robot, kind?: BallKind, flowerIndex?: number) {
+    if (this.paused || this.phase !== "teleop" || !robot.inventory.length || this.elapsed - robot.lastShot < .48) return;
+    const flower = flowerIndex === undefined ? FLOWERS.find(f => dist(f, robot.position) < .38) : FLOWERS[flowerIndex];
+    if (!flower) return;
+    if (dist(flower, robot.position) >= .38) return;
+    const index = FLOWERS.indexOf(flower);
+    const height = this.flowerHeight(index);
+    const slot = kind ? robot.inventory.findIndex(id => this.ball(id).kind === kind) : 0;
+    if (slot < 0) return;
+    const ball = this.ball(robot.inventory[slot]);
+    if (height + radius(ball.kind) * 2 > .56) return;
+    robot.inventory.splice(slot, 1); ball.launchedBy = robot.id; ball.mustTouchFloor = false;
+    this.spawn(ball, { ...flower, y: .63 }, { x: 0, y: -.1, z: 0 });
+    ball.deliveryFlower = index;
+    robot.lastShot = this.elapsed; robot.shots++;
+  }
+  private flowerHeight(index: number) {
+    return [...this.flowers[index].stack.map(id => this.ball(id)), ...this.balls.filter(b => b.status === "field" && b.deliveryFlower === index)]
+      .reduce((n, ball) => n + radius(ball.kind) * 2, .09);
+  }
+  private flowerScored(index: number) {
+    let height = .09;
+    return this.flowers[index].stack.map(id => this.ball(id)).filter(ball => {
+      const bottom = height; height += radius(ball.kind) * 2;
+      return height >= .318 && bottom <= .546;
+    });
+  }
+  flowerOwner(index: number): Team | null {
+    const nectar = this.flowerScored(index).filter(ball => ball.kind !== "pollen");
+    return nectar.length ? nectar[nectar.length - 1].kind as Team : null;
+  }
   targetPosition(robot: Robot = this.robot): Vec {
     return hiveTarget(this.hives[robot.team]);
   }
@@ -192,6 +257,7 @@ export class Game {
   }
   spawn(ball: Ball, position: Vec, velocity: Vec = { x: 0, y: 0, z: 0 }) {
     ball.flight = undefined;
+    ball.deliveryFlower = undefined;
     ball.status = "field"; ball.position = { ...position }; ball.previous = { ...position };
     ball.releasedAt = this.elapsed;
     const body = this.bodies.get(ball.id);
@@ -203,10 +269,10 @@ export class Game {
   nectarAvailable(team: Team) {
     const remaining = this.balls.filter(b => b.kind === team && b.status === "reserve").length;
     const entered = 5 - remaining;
-    return Math.min(remaining, Math.max(0, this.hives[team].tips - entered));
+    return this.scoringPeriod === "teleop" && this.remaining <= 60 ? remaining : Math.min(remaining, Math.max(0, this.hives[team].tips - entered));
   }
   feed(team: Team, silent = false) {
-    if (this.paused || this.phase !== "auto") return;
+    if (this.paused || !this.activePlay) return;
     if (this.nectarAvailable(team) < 1) { if (!silent) { this.note("NECTAR chưa mở khóa · Cần lật HIVE", team); this.emit(); } return; }
     const ball = this.balls.find(b => b.kind === team && b.status === "reserve");
     if (!ball) return;
@@ -216,7 +282,7 @@ export class Game {
     this.note("HUMAN PLAYER · Đã nạp 1 NECTAR vào loading zone", team); this.emit();
   }
   fire(robot = this.robot) {
-    if (this.paused || this.phase !== "auto" || this.elapsed - robot.lastShot < 0.48 || !robot.inventory.length) return;
+    if (this.paused || !this.activePlay || this.autoTipLimitReached(robot.team) || this.elapsed - robot.lastShot < 0.48 || !robot.inventory.length) return;
     const target = this.targetPosition(robot);
     const from = { x: robot.position.x, y: 0.43, z: robot.position.z };
     const velocity = this.shotVelocity(robot);
@@ -247,17 +313,20 @@ export class Game {
         this.elapsed <= ball.flight.arrivalAt + .2 ? weight(ball) : 0), 0);
   }
   private scoreFlower(ball: Ball, fi: number) {
-    if (ball.kind !== "pollen" && ball.launchedBy !== null) {
+    if (ball.kind !== "pollen" && ball.launchedBy !== null && (this.scoringPeriod === "auto" || this.remaining > 60 && this.phase === "teleop")) {
       const team = this.robots[ball.launchedBy].team;
       this.penalties[other(team)] += 20;
       this.note("G410 · NECTAR vào FLOWER sớm · +20 đối phương", team);
     }
     this.hide(ball, "flower"); this.flowers[fi].stack.push(ball.id);
+    if (ball.launchedBy !== null) this.flowerDeposits[ball.kind]++;
     if (ball.launchedBy !== null) this.robots[ball.launchedBy].hits++;
     this.note(`FLOWER ${fi + 1} · ${ball.kind === "pollen" ? "POLLEN" : "NECTAR"} đã vào`, ball.kind === "pollen" ? undefined : ball.kind);
   }
   private tip(hive: Hive) {
+    if (this.autoTipLimitReached(hive.team)) return;
     hive.tips++; this.earned[hive.team] += POINTS.tip;
+    if (this.scoringPeriod === "auto") { this.autoTips[hive.team]++; this.autoEarned[hive.team] += POINTS.tip; }
     hive.tipping = 1; hive.nextSide = -hive.side;
     const target = hiveTarget(hive);
     hive.load.forEach((id, index) => {
@@ -267,14 +336,19 @@ export class Game {
         { x: spread * 1.5, y: 0.3 + index * 0.04, z: hive.side * 0.65 });
     });
     hive.load = [];
-    this.note(`HIVE ${hive.team === "red" ? "ĐỎ" : "XANH"} TIP! +20 (AUTO)`, hive.team);
+    this.note(`HIVE ${hive.team === "red" ? "ĐỎ" : "XANH"} TIP! +20 (${this.scoringPeriod.toUpperCase()})`, hive.team);
   }
   private collect(robot: Robot) {
     if (robot.inventory.length >= 4 || this.elapsed - robot.lastPickup < 0.22) return;
+    const resource = this.botPlans.get(robot.id)?.resource;
+    const nectarRun = this.phase === "teleop" && this.remaining <= 60 && resource?.startsWith("ball-") && this.ball(resource).kind === robot.team;
     const candidate = this.balls.find(ball => ball.status === "field" && !ball.mustTouchFloor &&
+      (!nectarRun || ball.kind === robot.team) &&
       (ball.kind === "pollen" || ball.kind === robot.team) && ball.position.y < 0.17 &&
       this.elapsed - ball.releasedAt > 0.45 && dist(ball.position, robot.position) < 0.34);
     if (candidate) { this.hide(candidate, "held"); robot.inventory.push(candidate.id); robot.lastPickup = this.elapsed; return; }
+    // During FLOWER filling, bots must not take back their own foundation pollen.
+    if (this.phase === "teleop" && this.remaining <= 60 && !(this.manualDriving && robot.id === this.controlled)) return;
     const fi = FLOWERS.findIndex((f, index) => dist(f, robot.position) < 0.34 &&
       this.flowers[index].stack.length && this.ball(this.flowers[index].stack[0]).kind === "pollen");
     if (fi >= 0) {
@@ -347,16 +421,24 @@ export class Game {
       if (dist(robot.position, plan.lastPosition) >= .06) { plan.stuckFor = 0; plan.lastPosition = { ...robot.position }; }
       else if (dist(robot.position, plan.target) > this.tuning.arrivalRadius) plan.stuckFor += dt;
     }
-    const park = this.remaining < this.tuning.parkLead && (!robot.inventory.length || this.hiveCommitted(robot.team) >= this.config.tipLoad);
+    const park = this.autoTipLimitReached(robot.team) || this.remaining < this.tuning.parkLead;
+    const flowerStage = this.phase === "teleop" && this.remaining <= 60;
+    const flowerJob = flowerStage ? this.pickFlowerJob(robot) : null;
+    const flowerSource = flowerStage ? this.pickResource(robot) : null;
     const resource = plan?.resource ? this.resourceTarget(plan.resource, side) : null;
     const needsPlan = !plan || park && plan.mode !== "park" ||
+      flowerStage && plan.mode !== "park" && plan.mode !== "flower" && !!flowerJob && (plan.mode !== "collect" || robot.inventory.length >= 3 || !resource) ||
+      flowerStage && plan.mode === "shoot" && robot.inventory.length < 4 && !!flowerSource ||
+      plan.mode === "flower" && (plan.flowerIndex === undefined || !this.flowerBall(robot, plan.flowerIndex)) ||
       plan.mode === "shoot" && (!robot.inventory.length || plan.hiveSide !== hive.side) ||
       plan.mode === "collect" && (!resource || robot.inventory.length >= 4) ||
       plan.mode === "roam" && this.elapsed >= plan.expiresAt;
     if (needsPlan) {
-      let mode: BotPlan["mode"], target: Point, resourceId: string | undefined;
-      const source = this.pickResource(robot);
-      if (park) { mode = "park"; target = { x: side * 1.48, z: side * .93 }; }
+      let mode: BotPlan["mode"], target: Point, resourceId: string | undefined, flowerIndex: number | undefined;
+      const source = flowerStage ? flowerSource : this.pickResource(robot);
+      if (park) { mode = "park"; target = { x: side * 1.49, z: side * (robot.id % 2 ? 1.23 : .68) }; }
+      else if (flowerJob) { mode = "flower"; flowerIndex = flowerJob.index; target = FLOWERS[flowerIndex]; }
+      else if (flowerStage && source && robot.inventory.length < 4) { mode = "collect"; target = source.target; resourceId = source.id; }
       else if (robot.inventory.length && (plan?.mode !== "collect" || robot.inventory.length >= 4 || !source || dist(source.target, robot.position) > .55)) {
         mode = "shoot";
         target = { x: side * (robot.id % 2 ? this.tuning.outerStation : 1.03), z: hive.side * (robot.id % 2 ? .78 : 1.28) };
@@ -369,7 +451,7 @@ export class Game {
       }
       target = safePoint(target, side);
       plan = {
-        mode, target, resource: resourceId, hiveSide: hive.side, path: [], rerouteAt: 0,
+        mode, target, resource: resourceId, flowerIndex, hiveSide: hive.side, path: [], rerouteAt: 0,
         expiresAt: this.elapsed + 1.8, nextShotAt: plan?.nextShotAt ?? this.elapsed + .2 + this.random() * .12,
         readyFor: 0, lastPosition: { ...robot.position }, stuckFor: 0,
       };
@@ -395,14 +477,9 @@ export class Game {
     const dx = target.x - robot.position.x, dz = target.z - robot.position.z;
     const distance = Math.hypot(dx, dz);
     const sourcePosition = plan.resource?.startsWith("flower-") ? FLOWERS[Number(plan.resource.slice(7))] : plan.resource ? this.ball(plan.resource)?.position : null;
-    const arrived = plan.mode === "collect" ? !!sourcePosition && dist(robot.position, sourcePosition) < .325 : dist(robot.position, plan.target) < this.tuning.arrivalRadius;
+    const arrived = plan.mode === "flower" ? plan.flowerIndex !== undefined && dist(robot.position, FLOWERS[plan.flowerIndex]) < .325
+      : plan.mode === "collect" ? !!sourcePosition && dist(robot.position, sourcePosition) < .325 : dist(robot.position, plan.target) < this.tuning.arrivalRadius;
     let speed = arrived ? 0 : Math.min(distance * 3.2, Math.sqrt(2 * 2.3 * distance), this.config.speed * this.tuning.cruiseFactor);
-    for (const other of neighbors) {
-      const separation = dist(robot.position, other.position);
-      const toward = dx * (other.position.x - robot.position.x) + dz * (other.position.z - robot.position.z);
-      if (separation < this.tuning.avoidanceRadius && toward > 0 && (other.id < robot.id || other.speed < .08))
-        speed *= clamp((separation - .4) / Math.max(.01, this.tuning.avoidanceRadius - .4), .15, 1);
-    }
     // Mecanum drive can strafe without spinning the chassis. Keep it aligned in
     // narrow lanes; face a flower only when approaching its retrieval opening.
     const nearFlower = FLOWERS.find(f => dist(robot.position, f) < .45);
@@ -411,21 +488,48 @@ export class Game {
     const delta = Math.atan2(Math.sin(desired - robot.heading), Math.cos(desired - robot.heading));
     if (nearFlower && Math.abs(delta) > .25) speed = Math.min(speed, .1);
     robot.intake = plan.mode === "collect" && robot.inventory.length < 4;
-    this.drive(robot, dx / Math.max(distance, .001), dz / Math.max(distance, .001), Math.abs(delta) < .025 ? 0 : delta * 2, dt, speed);
+    const self = this.traffic.get(robot.id)!;
+    const safeVelocity = avoidTraffic(self, { x: dx / Math.max(distance, .001) * speed, z: dz / Math.max(distance, .001) * speed },
+      [...this.traffic.values()].filter(other => other.id !== robot.id), side, target);
+    const safeSpeed = Math.hypot(safeVelocity.x, safeVelocity.z);
+    this.drive(robot, safeVelocity.x / Math.max(safeSpeed, .001), safeVelocity.z / Math.max(safeSpeed, .001), Math.abs(delta) < .025 ? 0 : delta * 2, dt, safeSpeed);
     if (robot.intake) this.collect(robot);
     const ready = plan.mode === "shoot" && arrived && robot.speed <= this.tuning.shootSpeed && !hive.tipping;
-    robot.task = plan.mode === "park" ? "park" : plan.mode === "collect" ? "collect" : plan.mode === "shoot"
+    robot.task = speed > .15 && safeSpeed < speed * .4 ? "yield" : plan.mode === "flower" ? "deliver" : plan.mode === "park" ? "park" : plan.mode === "collect" ? "collect" : plan.mode === "shoot"
       ? hive.tipping || this.hiveCommitted(robot.team) >= this.config.tipLoad ? "wait" : arrived ? "aim" : "move" : "move";
     plan.readyFor = ready ? plan.readyFor + dt : 0;
     if (plan.readyFor >= .12 && this.elapsed >= plan.nextShotAt && this.hiveCommitted(robot.team) < this.config.tipLoad) {
       this.fire(robot); plan.nextShotAt = this.elapsed + this.tuning.shotInterval;
     }
+    if (plan.mode === "flower" && arrived && robot.speed < .16 && plan.flowerIndex !== undefined) {
+      const kind = this.flowerBall(robot, plan.flowerIndex);
+      if (kind) this.place(robot, kind, plan.flowerIndex);
+    }
+  }
+  private flowerBall(robot: Robot, index: number): BallKind | null {
+    const height = this.flowerHeight(index), owned = this.flowerOwner(index) === robot.team;
+    const has = (kind: BallKind) => robot.inventory.some(id => this.ball(id).kind === kind);
+    if (!owned && height >= .27 && height + radius(robot.team) * 2 <= .56 && has(robot.team)) return robot.team;
+    // Leave room for an ownership nectar above the pollen foundation.
+    if (has("pollen") && height + radius("pollen") * 2 + (owned ? 0 : radius(robot.team) * 2) <= .56) return "pollen";
+    if (owned && has(robot.team) && height + radius(robot.team) * 2 <= .56) return robot.team;
+    return null;
+  }
+  private pickFlowerJob(robot: Robot): { index: number } | null {
+    const side = robot.team === "red" ? -1 : 1;
+    const options = FLOWERS.map((flower, index) => ({ index, flower })).filter(({ index, flower }) =>
+      flower.x * side > 0 && this.flowerBall(robot, index) && ![...this.botPlans.entries()].some(([id, plan]) =>
+        id !== robot.id && plan.mode === "flower" && plan.flowerIndex === index));
+    options.sort((a, b) => (this.flowerOwner(a.index) === robot.team ? .7 : 0) + dist(robot.position, a.flower)
+      - (this.flowerOwner(b.index) === robot.team ? .7 : 0) - dist(robot.position, b.flower));
+    return options[0] ?? null;
   }
   private clearanceScore(point: Point, neighbors: Robot[]): number {
     return neighbors.reduce((score, robot) => Math.min(score, dist(point, robot.position)), 2);
   }
   private resourceTarget(id: string, side: number): Point | null {
     if (id.startsWith("flower-")) {
+      if (this.phase === "teleop" && this.remaining <= 60) return null;
       const index = Number(id.slice(7)), flower = this.flowers[index];
       if (!flower?.stack.length || this.ball(flower.stack[0]).kind !== "pollen") return null;
       const f = FLOWERS[index]; return f.x * side > 0 ? safePoint({ x: f.x, z: f.z }, side) : null;
@@ -439,25 +543,42 @@ export class Game {
   private pickResource(robot: Robot): { id: string; target: Point } | null {
     const side = robot.team === "red" ? -1 : 1;
     const options: { id: string; target: Point; cost: number }[] = [];
+    const needsNectar = this.phase === "teleop" && this.remaining <= 60 && FLOWERS.some((flower, index) =>
+      flower.x * side > 0 && this.flowerHeight(index) >= .27 && this.flowerHeight(index) + radius(robot.team) * 2 <= .56 && this.flowerOwner(index) !== robot.team);
     for (const id of [...this.balls.map(b => b.id), ...FLOWERS.map((_, i) => "flower-" + i)]) {
       const target = this.resourceTarget(id, side);
       if (!target || target.x * side < 0) continue;
       const claimed = [...this.botPlans.entries()].some(([idOther, plan]) => idOther !== robot.id && plan.resource === id && plan.mode === "collect");
-      options.push({ id, target, cost: dist(target, robot.position) + (claimed ? 1.6 : 0) + this.random() * .04 });
+      if (claimed) continue;
+      const nectarPriority = needsNectar && !id.startsWith("flower-") && this.ball(id).kind === robot.team ? -4 : 0;
+      options.push({ id, target, cost: dist(target, robot.position) + nectarPriority + this.random() * .04 });
     }
     options.sort((a, b) => a.cost - b.cost);
     return options[0] ?? null;
   }
   private assessMovement() {
-    if (this.autoMovementAssessed) return;
+    if (this.autoMovementAssessed || this.config.matchMode === "teleop") return;
     this.autoMovementAssessed = true;
-    for (const robot of this.robots) {
-      if (robot.left) this.movement[robot.team] += POINTS.leave;
-      if (loading(robot.team, robot.position, 0.2)) this.movement[robot.team] += POINTS.park;
+    // Requested simulation scoring: each achievement is counted once per alliance.
+    for (const team of ["red", "blue"] as const) {
+      const robots = this.robots.filter(robot => robot.team === team);
+      this.movement[team] = (robots.some(robot => robot.left) ? POINTS.leave : 0) +
+        (robots.some(robot => loading(team, robot.position, .2)) ? POINTS.park : 0);
     }
   }
   private advance() {
-    if (this.phase === "auto") { this.assessMovement(); this.phase = "settling"; this.remaining = 3; this.settlingElapsed = 0; this.note("AUTO KẾT THÚC · Chờ bóng và HIVE dừng để chốt điểm"); }
+    if (this.phase === "auto") {
+      this.assessMovement(); this.clearInput();
+      this.phase = this.config.matchMode === "full" ? "transition" : "settling";
+      this.remaining = this.phase === "transition" ? PERIOD_SECONDS.transition : 3; this.settlingElapsed = 0;
+      this.note(this.phase === "transition" ? "CHUYỂN TIẾP · Robot dừng 8 giây trước TELEOP" : "AUTO KẾT THÚC · Chờ bóng và HIVE dừng để chốt điểm");
+    }
+    else if (this.phase === "transition") this.beginTeleop();
+    else if (this.phase === "teleop") {
+      for (const robot of this.robots) if (loading(robot.team, robot.position, .2)) this.teleopPark[robot.team] += POINTS.park;
+      this.phase = "settling"; this.remaining = 3; this.settlingElapsed = 0; this.clearInput();
+      this.note("TELEOP KẾT THÚC · Chờ bóng và HIVE dừng để chốt điểm");
+    }
     else if (this.phase === "settling") {
       const moving = Object.values(this.hives).some(h => h.tipping > 0) || this.balls.some(ball => {
         if (ball.status !== "field") return false;
@@ -468,31 +589,70 @@ export class Game {
       else this.finish();
     }
   }
+  private beginTeleop() {
+    this.phase = "teleop"; this.scoringPeriod = "teleop"; this.remaining = PERIOD_SECONDS.teleop;
+    this.botPlans.clear(); this.clearInput();
+    for (const robot of this.robots) robot.intake = false;
+    this.note(this.config.teleopControl === "manual" ? "TELEOP · WASD lái, Q/E xoay, Space bắn, I hút, F đặt FLOWER" : "TELEOP · Bốn bot tiếp tục lấy bóng và ném vào HIVE trong 2 phút");
+  }
   finish() {
     if (this.settled) return;
     this.assessMovement();
     this.phase = "ended"; this.remaining = 0; this.paused = true; this.settled = true;
-    this.updateScore(); this.note("KẾT THÚC AUTO · Đã chốt điểm HIVE, LEAVE và AUTO PARK"); this.emit();
+    this.clearInput(); this.updateScore(); this.note(`KẾT THÚC ${this.config.matchMode === "auto" ? "AUTO" : this.config.matchMode === "teleop" ? "TELEOP" : "TRẬN ĐẤU"} · Đã chốt điểm`); this.emit();
   }
   updateScore() {
-    for (const team of ["red", "blue"] as const) this.score[team] = this.earned[team] + this.movement[team] + this.penalties[team];
+    this.cellScore = zeroScore(); this.flowerScore = zeroScore(); this.gardenScore = zeroScore();
+    if (this.scoringPeriod === "teleop") {
+      for (const team of ["red", "blue"] as const) {
+        this.cellScore[team] = this.hives[team].load.length * 2;
+        const sign = team === "red" ? -1 : 1;
+        this.gardenScore[team] = this.balls.filter(b => b.status === "field" &&
+          b.position.x * sign > HALF - .584 - radius(b.kind) && b.position.x * sign <= HALF + radius(b.kind) &&
+          b.position.z * -sign > HALF - .051 - radius(b.kind) && b.position.z * -sign <= HALF + radius(b.kind)).length;
+      }
+      for (const flower of this.flowers) {
+        // Simplified stack model: elements above the middle ring are in the scoring volume.
+        let height = .09;
+        const scored = flower.stack.filter(id => {
+          const ball = this.ball(id), bottom = height; height += radius(ball.kind) * 2;
+          return height >= .318 && bottom <= .546;
+        });
+        const nectar = scored.map(id => this.ball(id)).filter(b => b.kind !== "pollen");
+        if (nectar.length) {
+          this.flowerScore[nectar[0].kind as Team] += 5;
+          this.flowerScore[nectar[nectar.length - 1].kind as Team] += scored.length * 2;
+        }
+      }
+    }
+    for (const team of ["red", "blue"] as const) this.score[team] = this.earned[team] + this.movement[team] + this.teleopPark[team] + this.cellScore[team] + this.flowerScore[team] + this.gardenScore[team] + this.penalties[team];
   }
   tick(dt: number) {
     if (this.paused || this.phase === "ready" || this.phase === "ended") return;
     this.elapsed += dt;
     this.syncRobotPoses();
+    this.traffic = new Map(this.robots.map(robot => {
+      const velocity = this.bodies.get(`robot-${robot.id}`)?.linvel() ?? { x: 0, z: 0 };
+      return [robot.id, { id: robot.id, position: { ...robot.position }, velocity: { x: velocity.x, z: velocity.z }, heading: robot.heading }];
+    }));
     if (this.phase === "settling") this.settlingElapsed += dt;
     this.remaining -= dt; if (this.remaining <= 0) this.advance();
-    if (this.phase === "auto") for (const team of ["red", "blue"] as const) if (this.nectarAvailable(team) > 0) this.feed(team, true);
+    if (this.activePlay) for (const team of ["red", "blue"] as const) if (this.nectarAvailable(team) > 0) this.feed(team, true);
     for (const robot of this.robots) {
       if (this.phase === "auto" && Math.abs(robot.position.x) < HALF - 0.23 && Math.abs(robot.position.z) < HALF - 0.23) robot.left = true;
-      if (this.phase !== "auto") { robot.intake = false; robot.task = "idle"; this.drive(robot, 0, 0, 0, dt, 0); continue; }
-      this.bot(robot, dt);
+      if (!this.activePlay) { robot.intake = false; robot.task = "idle"; this.drive(robot, 0, 0, 0, dt, 0); continue; }
+      if (this.manualDriving && robot.id === this.controlled) {
+        const x = clamp(this.input.x, -1, 1), z = clamp(this.input.z, -1, 1), h = robot.heading;
+        this.drive(robot, -Math.cos(h) * x + Math.sin(h) * z, Math.sin(h) * x + Math.cos(h) * z, this.input.turn, dt, this.config.speed);
+        robot.task = "idle";
+        if (robot.intake) this.collect(robot);
+        if (this.input.shoot) this.fire(robot);
+      } else this.bot(robot, dt);
       const velocity = this.shotVelocity(robot);
       const target = this.targetPosition(robot);
       robot.turret = Math.atan2(target.x - robot.position.x, target.z - robot.position.z) - robot.heading;
       if (velocity) robot.hood = Math.atan2(velocity.y, Math.hypot(velocity.x, velocity.z));
-      if (robot.id === this.controlled) this.aimValid = !!velocity && !this.hives[robot.team].tipping;
+      if (robot.id === this.controlled) this.aimValid = !!velocity && !this.hives[robot.team].tipping && !this.autoTipLimitReached(robot.team);
     }
     for (const hive of Object.values(this.hives)) if (hive.tipping > 0) {
       hive.tipping = Math.max(0, hive.tipping - dt / 0.9);
@@ -506,7 +666,7 @@ export class Game {
       const body = this.bodies.get(ball.id);
       if (!body) continue;
       ball.previous = ball.position; ball.position = { ...body.translation() };
-      if (ball.position.y < radius(ball.kind) + 0.025) { ball.mustTouchFloor = false; ball.flight = undefined; }
+      if (ball.position.y < radius(ball.kind) + 0.025) { ball.mustTouchFloor = false; ball.flight = undefined; ball.deliveryFlower = undefined; }
       if (ball.position.y < -0.3 || Math.abs(ball.position.x) > HALF + 0.3 || Math.abs(ball.position.z) > HALF + 0.3) {
         // Out-of-bounds elements return through a loading zone, never duplicate.
         const team = ball.kind === "pollen" ? (ball.position.x < 0 ? "red" : "blue") : ball.kind;
@@ -521,7 +681,7 @@ export class Game {
       if (ball.launchedBy === null) continue;
       // A score is an actual aperture crossing; pressing shoot never adds points.
       for (const hive of Object.values(this.hives)) {
-        if (hive.tipping || this.elapsed - ball.releasedAt < 0.1) continue;
+        if (hive.tipping || this.autoTipLimitReached(hive.team) || this.elapsed - ball.releasedAt < 0.1) continue;
         const target = hiveTarget(hive), angle = -hive.side * Math.PI / 6;
         const normal = { y: -hive.side * Math.sin(angle), z: hive.side * Math.cos(angle) };
         const signed = (p: Vec) => (p.y - target.y) * normal.y + (p.z - target.z) * normal.z;

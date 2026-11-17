@@ -27,7 +27,7 @@ export default function ShotPaths({ game }: { game: Game }) {
   useAfterPhysicsStep(() => {
     for (const ball of game.balls) {
       let trace = traces.get(ball.id);
-      const active = ball.status === "field" && ball.launchedBy !== null && !!ball.flight;
+      const active = ball.status === "field" && ball.launchedBy !== null && (!!ball.flight || ball.deliveryFlower !== undefined);
       if (active) {
         const body = game.bodies.get(ball.id);
         if (!body) continue;
@@ -85,7 +85,7 @@ export default function ShotPaths({ game }: { game: Game }) {
     colors.needsUpdate = true;
 
     const shot = game.shotPreview();
-    preview.current.visible = !!shot && game.aimValid && (game.phase === "auto" || game.phase === "settling");
+    preview.current.visible = !!shot && game.aimValid && (game.activePlay || game.phase === "settling");
     if (!shot || !preview.current.visible) return;
     const points = scratch.arc, p = { ...shot.from }, v = { ...shot.velocity };
     points[0].copy(p); let count = 1;

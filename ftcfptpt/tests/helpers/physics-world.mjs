@@ -6,10 +6,10 @@ let initialized;
 export const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 
 // The same nominal collider geometry, materials, fixed step and body settings as Scene.tsx.
-export async function simulateMatch(GameClass, seed, tuning = {}, recordTrace = false) {
+export async function simulateMatch(GameClass, seed, tuning = {}, recordTrace = false, config = {}) {
   initialized ??= RAPIER.init(); await initialized;
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 }); world.timestep = 1 / 60;
-  const game = new GameClass({ ...DEFAULT_CONFIG, quality: 'low' }, seeded(seed), tuning);
+  const game = new GameClass({ ...DEFAULT_CONFIG, quality: 'low', ...config }, seeded(seed), tuning);
   const fixed = (position, half, rotation) => {
     const desc = RAPIER.ColliderDesc.cuboid(...half).setTranslation(...position);
     if (rotation) desc.setRotation(rotation);
@@ -52,14 +52,15 @@ export async function simulateMatch(GameClass, seed, tuning = {}, recordTrace = 
     }
     hives[team] = body;
   }
+  const robotColliders = [];
   for (const robot of game.robots) {
     const p = robot.position;
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z)
       .setCcdEnabled(true).setLinearDamping(.5).setAngularDamping(10));
     body.setEnabledRotations(false, true, false, true); body.setAdditionalSolverIterations(4);
     body.setRotation({ x: 0, y: Math.sin(robot.heading / 2), z: 0, w: Math.cos(robot.heading / 2) }, true);
-    world.createCollider(RAPIER.ColliderDesc.cuboid(ROBOT_HALF.x, ROBOT_HALF.y, ROBOT_HALF.z)
-      .setMass(15).setFriction(.5).setRestitution(.03), body);
+    robotColliders.push(world.createCollider(RAPIER.ColliderDesc.cuboid(ROBOT_HALF.x, ROBOT_HALF.y, ROBOT_HALF.z)
+      .setMass(15).setFriction(.5).setRestitution(.03), body));
     game.bodies.set('robot-' + robot.id, body);
   }
   for (const ball of game.balls) {
@@ -71,21 +72,36 @@ export async function simulateMatch(GameClass, seed, tuning = {}, recordTrace = 
     body.setEnabled(ball.status === 'field'); game.bodies.set(ball.id, body);
   }
   let hiveHits = 0, flowerHits = 0, pickups = 0, blockedSeconds = 0, travel = 0, maxSpeed = 0, escapes = 0;
+  let robotContactSeconds = 0, contactEvents = 0;
+  let lastContacts = new Set();
+  const flowerDeliveries = { pollen: 0, red: 0, blue: 0 };
   const originalHide = game.hide.bind(game);
-  game.hide = (ball, status) => { if (status === 'hive') hiveHits++; if (status === 'flower') flowerHits++; if (status === 'held') pickups++; originalHide(ball, status); };
+  game.hide = (ball, status) => { if (status === 'hive') hiveHits++; if (status === 'flower') { flowerHits++; if (ball.launchedBy !== null) flowerDeliveries[ball.kind]++; } if (status === 'held') pickups++; originalHide(ball, status); };
   const last = game.robots.map(r => ({ ...r.position }));
   const trace = [];
   game.start();
+  const phases = new Set([game.phase]);
+  const duration = game.config.matchMode === 'full' ? 158 : game.config.matchMode === 'teleop' ? 120 : 30;
   try {
-    for (let step = 0; step < 60 * 45 && !game.settled; step++) {
+    for (let step = 0; step < 60 * (duration + 15) && !game.settled; step++) {
       for (const team of ['red', 'blue']) {
         const angle = game.hives[team].angle;
         hives[team].setNextKinematicRotation({ x: Math.sin(angle / 2), y: 0, z: 0, w: Math.cos(angle / 2) });
       }
       game.tick(1 / 60);
+      phases.add(game.phase);
       if (game.paused) break;
       const commanded = game.robots.map(r => { const v = game.bodies.get('robot-' + r.id).linvel(); return Math.hypot(v.x, v.z); });
       world.step();
+      const contacts = new Set();
+      if (game.activePlay) for (let a = 0; a < robotColliders.length; a++) for (let b = a + 1; b < robotColliders.length; b++) {
+        let touching = false;
+        world.contactPair(robotColliders[a], robotColliders[b], manifold => {
+          for (let i = 0; i < manifold.numContacts(); i++) if (manifold.contactDist(i) <= .001) touching = true;
+        });
+        if (touching) { const key = a + ':' + b; contacts.add(key); robotContactSeconds += 1 / 60; if (!lastContacts.has(key)) contactEvents++; }
+      }
+      lastContacts = contacts;
       for (const r of game.robots) {
         const body = game.bodies.get('robot-' + r.id), p = body.translation(), v = body.linvel();
         const distance = Math.hypot(p.x - last[r.id].x, p.z - last[r.id].z);
@@ -97,13 +113,14 @@ export async function simulateMatch(GameClass, seed, tuning = {}, recordTrace = 
         maxSpeed = Math.max(maxSpeed, Math.hypot(v.x, v.z)); last[r.id] = { ...p };
       }
       game.syncRobotPoses();
-      if (recordTrace && step % 300 === 0) trace.push({ elapsed: game.elapsed, hives: game.hives,
-        robots: game.robots.map(r => ({ id: r.id, position: { ...r.position }, inventory: r.inventory.length, shots: r.shots,
+      if (recordTrace && step % 300 === 0) trace.push({ elapsed: game.elapsed, remaining: game.remaining, phase: game.phase, hives: structuredClone(game.hives), flowers: game.flowers.map(f => f.stack.map(id => game.ball(id).kind)),
+        robots: game.robots.map(r => ({ id: r.id, task: r.task, position: { ...r.position }, inventory: r.inventory.length, kinds: r.inventory.map(id => game.ball(id).kind), shots: r.shots,
           plan: JSON.parse(JSON.stringify(game.botPlans?.get(r.id) ?? null)) })) });
     }
     const shots = game.robots.reduce((n, r) => n + r.shots, 0);
     return { seed, shots, hiveHits, flowerHits, pickups, hitRate: shots ? hiveHits / shots : 0,
-      tips: game.hives.red.tips + game.hives.blue.tips, score: game.score.red + game.score.blue,
+      tips: game.hives.red.tips + game.hives.blue.tips, autoTips: { ...game.autoTips }, phases: [...phases], ballCount: game.balls.length, score: game.score.red + game.score.blue,
+      robotContactSeconds, contactEvents, flowerDeliveries, flowerScore: { ...game.flowerScore }, movement: { ...game.movement },
       blockedSeconds, travel, maxSpeed, escapes, ended: game.settled,
       robots: game.robots.map(r => ({ number: r.number, shots: r.shots, hits: r.hits })), ...(recordTrace ? { trace } : {}) };
   } finally { world.free(); }
